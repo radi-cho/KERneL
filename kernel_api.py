@@ -38,7 +38,8 @@ def initialize_kernel_module(cuda_sources, cpp_sources, function_name, kernel_na
 
 def time_execution_with_cuda_event(model, inputs, num_trials):
     device = torch.cuda.current_device()
-    model.to(device=device)
+    if isinstance(model, torch.nn.Module):
+        model.to(device=device)
     inputs = [inp.to(device=device) for inp in inputs]
 
     elapsed_times = 0
@@ -73,8 +74,8 @@ def initialize_task():
             model = Model()
             inputs = get_inputs()
 
-            task_id = uuid4()
-            TASKS[task_id] = [model, inputs]
+            task_id = str(uuid4())
+            TASKS[task_id] = [python_source, model, inputs]
 
             average_time = time_execution_with_cuda_event(model, inputs, num_trials)
             response = {
@@ -94,10 +95,10 @@ def get_kernel():
         data = request.get_json()
 
         task_id = data.get("task_id", "")
-        _, inputs = TASKS[task_id]
+        source, _, inputs = TASKS[task_id]
 
         num_trials = data.get("num_trials", 100)
-        function_name, cuda_sources, cpp_sources = llm_query()
+        function_name, cuda_sources, cpp_sources = llm_query(source, "")
         initialized, result = initialize_kernel_module(cuda_sources, cpp_sources, function_name)
 
         if initialized:
@@ -126,4 +127,4 @@ def get_kernel():
 
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(debug=False)
