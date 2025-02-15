@@ -173,8 +173,27 @@ with col2:
 
     st.components.v1.html(chart_html, height=250)
 
+# Input Shape Section
+st.markdown("📐 **Model Input Settings**", unsafe_allow_html=True)
+input_shape = st.text_input(
+    "Input Shape (comma-separated, e.g., 1,3,224,224)", 
+    value="1,3,224,224"
+)
+
+# Debug information for input shape
+if input_shape:
+    try:
+        input_shape = input_shape.strip()
+        if not all(x.isdigit() for x in input_shape.split(',')):
+            st.error("Input shape must contain only numbers separated by commas")
+        else:
+            input_size = tuple(map(int, input_shape.split(',')))
+            st.success(f"Input shape parsed successfully: {input_size}")
+    except Exception as e:
+        st.error(f"Error parsing input shape: {str(e)}")
+
 # Model Visualization Section
-st.markdown("🧠 **Model Visualization**")
+st.markdown("🧠 **Model Visualization**", unsafe_allow_html=True)
 if python_code and input_shape:
     try:
         # Parse input shape
