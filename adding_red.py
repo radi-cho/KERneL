@@ -175,43 +175,43 @@ with col2:
 
 # Model Visualization Section
 st.markdown("🧠 **Model Visualization**")
-    if python_code and input_shape:
-        try:
-            # Parse input shape
-            input_shape = input_shape.strip()
-            input_size = tuple(map(int, input_shape.split(',')))
+if python_code and input_shape:
+    try:
+        # Parse input shape
+        input_shape = input_shape.strip()
+        input_size = tuple(map(int, input_shape.split(',')))
+        
+        # Execute the code and get model
+        st.info("Creating PyTorch model...")
+        model, error = execute_pytorch_code(python_code)
+        
+        if error:
+            st.error(error)
+        elif model:
+            st.success("PyTorch model created successfully!")
             
-            # Execute the code and get model
-            st.info("Creating PyTorch model...")
-            model, error = execute_pytorch_code(python_code)
+            # Create and display visualization
+            st.info("Generating visualization...")
+            graph_image = visualize_model(model, input_size)
             
-            if error:
-                st.error(error)
-            elif model:
-                st.success("PyTorch model created successfully!")
+            if isinstance(graph_image, bytes):
+                st.image(graph_image, use_column_width=True)
                 
-                # Create and display visualization
-                st.info("Generating visualization...")
-                graph_image = visualize_model(model, input_size)
+                # Display model summary
+                st.markdown("### Model Summary")
+                total_params = sum(p.numel() for p in model.parameters())
+                trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
                 
-                if isinstance(graph_image, bytes):
-                    st.image(graph_image, use_column_width=True)
-                    
-                    # Display model summary
-                    st.markdown("### Model Summary")
-                    total_params = sum(p.numel() for p in model.parameters())
-                    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-                    
-                    st.markdown(f"""
-                    - Total Parameters: {total_params:,}
-                    - Trainable Parameters: {trainable_params:,}
-                    - Non-trainable Parameters: {total_params - trainable_params:,}
-                    """)
-                else:
-                    st.error(f"Error generating visualization: {graph_image}")
+                st.markdown(f"""
+                - Total Parameters: {total_params:,}
+                - Trainable Parameters: {trainable_params:,}
+                - Non-trainable Parameters: {total_params - trainable_params:,}
+                """)
+            else:
+                st.error(f"Error generating visualization: {graph_image}")
 
-        except Exception as e:
-            st.error(f"Error processing model: {str(e)}\n{traceback.format_exc()}")
+    except Exception as e:
+        st.error(f"Error processing model: {str(e)}\n{traceback.format_exc()}")
         
 # **🔹 Button to Transform Python Code (Future AI Model)**
 st.markdown("⚙️ **Transform Python to CUDA Kernel**", unsafe_allow_html=True)
