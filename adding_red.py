@@ -1,16 +1,12 @@
 import streamlit as st
-import requests
-import random
-from streamlit_ace import st_ace
 import torch
 import torch.nn as nn
 from torchview import draw_graph
-import io
-from PIL import Image
-import sys
-import contextlib
-from io import StringIO
 import traceback
+from streamlit_ace import st_ace
+import sys
+from io import StringIO
+import contextlib
 
 # Function to safely execute PyTorch code and get model
 def execute_pytorch_code(code_string):
@@ -178,36 +174,33 @@ with col2:
     st.components.v1.html(chart_html, height=250)
 
 # Model Visualization Section
-st.markdown("🧠 **PyTorch Model Visualization**", unsafe_allow_html=True)
-if python_code:
-    try:
-        # Convert input shape string to tuple
+st.markdown("🧠 **Model Visualization**")
+    if python_code and input_shape:
         try:
+            # Parse input shape
+            input_shape = input_shape.strip()
             input_size = tuple(map(int, input_shape.split(',')))
-        except:
-            st.error("Invalid input shape format. Please use comma-separated numbers.")
-            input_size = None
-
-        if input_size:
+            
             # Execute the code and get model
+            st.info("Creating PyTorch model...")
             model, error = execute_pytorch_code(python_code)
             
             if error:
                 st.error(error)
             elif model:
-                st.success("✅ PyTorch model detected! Generating visualization...")
+                st.success("PyTorch model created successfully!")
                 
                 # Create and display visualization
+                st.info("Generating visualization...")
                 graph_image = visualize_model(model, input_size)
+                
                 if isinstance(graph_image, bytes):
                     st.image(graph_image, use_column_width=True)
                     
                     # Display model summary
                     st.markdown("### Model Summary")
-                    summary_output = StringIO()
-                    with contextlib.redirect_stdout(summary_output):
-                        total_params = sum(p.numel() for p in model.parameters())
-                        trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+                    total_params = sum(p.numel() for p in model.parameters())
+                    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
                     
                     st.markdown(f"""
                     - Total Parameters: {total_params:,}
@@ -217,8 +210,8 @@ if python_code:
                 else:
                     st.error(f"Error generating visualization: {graph_image}")
 
-    except Exception as e:
-        st.error(f"Error processing model: {str(e)}")
+        except Exception as e:
+            st.error(f"Error processing model: {str(e)}\n{traceback.format_exc()}")
         
 # **🔹 Button to Transform Python Code (Future AI Model)**
 st.markdown("⚙️ **Transform Python to CUDA Kernel**", unsafe_allow_html=True)
