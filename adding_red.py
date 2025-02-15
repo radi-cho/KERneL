@@ -2,6 +2,81 @@ import streamlit as st
 import requests
 import random
 from streamlit_ace import st_ace
+import re
+import graphviz
+
+# Function to parse PyTorch model architecture
+def parse_pytorch_code(code):
+    try:
+        # Look for class definition that inherits from nn.Module
+        class_match = re.search(r'class\s+(\w+)\(.*?nn\.Module.*?\):(.*?)(?=\n\n|\Z)', code, re.DOTALL)
+        if not class_match:
+            return None
+        
+        # Extract the forward method
+        forward_match = re.search(r'def\s+forward\s*\([^)]*\):(.*?)(?=\n\n|\Z)', code, re.DOTALL)
+        if not forward_match:
+            return None
+            
+        # Extract layer definitions
+        layers = []
+        layer_pattern = r'nn\.(Linear|Conv2d|MaxPool2d|ReLU|Flatten)\((.*?)\)'
+        for line in code.split('\n'):
+            if 'nn.' in line:
+                layer_match = re.search(layer_pattern, line)
+                if layer_match:
+                    layer_type = layer_match.group(1)
+                    params = layer_match.group(2)
+                    layers.append((layer_type, params))
+        
+        return layers
+    except Exception as e:
+        st.error(f"Error parsing PyTorch code: {str(e)}")
+        return None
+
+# Function to create network visualization
+def visualize_network(layers):
+    dot = graphviz.Digraph(comment='Neural Network Architecture')
+    dot.attr(rankdir='LR')  # Left to right layout
+    
+    # Node styling
+    dot.attr('node', shape='box', style='rounded,filled', color='lightblue')
+    
+    # Add input node
+    dot.node('input', 'Input')
+    prev_node = 'input'
+    
+    # Add layer nodes
+    for idx, (layer_type, params) in enumerate(layers):
+        node_id = f'layer_{idx}'
+        
+        # Create label based on layer type
+        if layer_type == 'Linear':
+            label = f'Linear\n{params}'
+        elif layer_type == 'Conv2d':
+            label = f'Conv2D\n{params}'
+        elif layer_type == 'MaxPool2d':
+            label = f'MaxPool2D\n{params}'
+        elif layer_type == 'ReLU':
+            label = 'ReLU'
+        elif layer_type == 'Flatten':
+            label = 'Flatten'
+        
+        # Set color based on layer type
+        if layer_type == 'Linear':
+            dot.attr('node', fillcolor='lightblue')
+        elif layer_type in ['Conv2d', 'MaxPool2d']:
+            dot.attr('node', fillcolor='lightgreen')
+        elif layer_type == 'ReLU':
+            dot.attr('node', fillcolor='lightyellow')
+        elif layer_type == 'Flatten':
+            dot.attr('node', fillcolor='lightgray')
+        
+        dot.node(node_id, label)
+        dot.edge(prev_node, node_id)
+        prev_node = node_id
+    
+    return dot
 
 # Streamlit UI Setup - Remove Top Blank Space
 st.set_page_config(page_title="Python to CUDA Kernel Optimization", layout="wide")
@@ -118,6 +193,24 @@ with col2:
     """
 
     st.components.v1.html(chart_html, height=250)
+
+# Neural Network Visualization Section
+st.markdown("🧠 **Neural Network Architecture Visualization**", unsafe_allow_html=True)
+if python_code:
+    # Check if code contains PyTorch neural network
+    if 'nn.Module' in python_code:
+        layers = parse_pytorch_code(python_code)
+        if layers:
+            st.success("✅ PyTorch neural network detected! Generating visualization...")
+            dot = visualize_network(layers)
+            st.graphviz_chart(dot)
+            
+            # Display network summary
+            st.markdown("### Network Summary")
+            for idx, (layer_type, params) in enumerate(layers, 1):
+                st.write(f"{idx}. **{layer_type}**: {params}")
+        else:
+            st.info("ℹ️ No valid PyTorch neural network structure found in the code.")
 
 # **🔹 Button to Transform Python Code (Future AI Model)**
 st.markdown("⚙️ **Transform Python to CUDA Kernel**", unsafe_allow_html=True)
