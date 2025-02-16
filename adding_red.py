@@ -123,10 +123,13 @@ with col2:
 
     st.components.v1.html(chart_html, height=250)
 
-# Visualization feature
-st.markdown("### Model Computational Graph")
-visualize_button = st.button("Visualize Model")
+# model visualizer
+st.markdown("---")  # Add a horizontal divider
+button_col = st.columns([1, 6, 1])[1]  # Center the button
+with button_col:
+    visualize_button = st.button("Visualize Model")
 
+# Handle Button Click
 if visualize_button:
     local_vars = {}
     try:
@@ -164,7 +167,7 @@ if visualize_button:
         img_buffer = BytesIO()
         graph.render(format='png', outfile=img_buffer)
         img_buffer.seek(0)
-        st.image(img_buffer, caption="Model Computational Graph", use_column_width=True)
+        graph_placeholder.image(img_buffer, caption="Model Computational Graph", use_column_width=True)
 
     except Exception as e:
         st.error(f"Error: {e}")
@@ -188,7 +191,7 @@ if visualize_button:
         default_img_buffer = BytesIO()
         default_graph.render(format='png', outfile=default_img_buffer)
         default_img_buffer.seek(0)
-        st.image(default_img_buffer, caption="Default Model Computational Graph", use_column_width=True)
+        graph_placeholder.image(default_img_buffer, caption="Default Model Computational Graph", use_column_width=True)
         
 # **🔹 Button to Transform Python Code (Future AI Model)**
 st.markdown("⚙️ **Transform Python to CUDA Kernel**", unsafe_allow_html=True)
