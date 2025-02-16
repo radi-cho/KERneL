@@ -1,10 +1,5 @@
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-from torch.utils.cpp_extension import load_inline
-
-# Inline CUDA code for custom max_pool2d kernel
 source = """
+<kernel_cu>
 #include <torch/extension.h>
 #include <cuda_runtime.h>
 #include <float.h>
@@ -60,36 +55,12 @@ torch::Tensor max_pool2d_cuda(torch::Tensor input, int kernel_size, int stride) 
 
     return output;
 }
+</kernel_cu>
 """
-cpp_src = "torch::Tensor max_pool2d_cuda(torch::Tensor input, int kernel_size, int stride);"
+cpp_src = """
+<cpp_kernel>
+torch::Tensor max_pool2d_cuda(torch::Tensor input, int kernel_size, int stride);
+</cpp_kernel>
+"""
 
-# Compile the inline CUDA code
-custom_max_pool = load_inline(
-    name='custom_max_pool',
-    cpp_sources=cpp_src,
-    cuda_sources=source,
-    functions=['max_pool2d_cuda'],
-    verbose=True,
-    extra_cflags=[""],
-    extra_ldflags=[""],
-)
 
-# Custom MNIST model using inlined max_pool2d_cuda
-class ModelNew(nn.Module):
-    def __init__(self) -> None:
-        super().__init__()
-        self.conv1 = nn.Conv2d(1, 10, kernel_size=5)
-        self.conv2 = nn.Conv2d(10, 20, kernel_size=5)
-        self.fc1 = nn.Linear(320, 50)
-        self.fc2 = nn.Linear(50, 10)
-        self.custom_max_pool = custom_max_pool
-
-    def forward(self, x):
-        # Use the custom max_pool2d operator
-        x = self.custom_max_pool.max_pool2d_cuda(F.relu(self.conv1(x)), 2, 2)
-        x = self.custom_max_pool.max_pool2d_cuda(F.relu(self.conv2(x)), 2, 2)
-        x = x.view(-1, 320)
-        x = F.relu(self.fc1(x))
-        x = self.fc2(x)
-        return F.log_softmax(x, dim=1)
-    

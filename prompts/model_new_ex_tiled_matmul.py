@@ -1,9 +1,5 @@
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-from torch.utils.cpp_extension import load_inline
-
 source = """
+<kernel_cu>
 #include <torch/extension.h>
 #include <stdio.h>
 #include <c10/cuda/CUDAException.h>
@@ -100,27 +96,12 @@ torch::Tensor tiled_matmul_cuda(const torch::Tensor& m, const torch::Tensor& n) 
 
     return output;
 }
+</kernel_cu>
 """
 
 # C++ interface definition
 cpp_src = """
+<cpp_kernel>
 torch::Tensor tiled_matmul_cuda(const torch::Tensor& m, const torch::Tensor& n);
+</cpp_kernel>
 """
-
-# Load the CUDA kernel as a PyTorch C++ extension
-tiled_matmul = torch.utils.cpp_extension.load_inline(
-    "tiled_matmul",  # Name of the extension
-    cpp_sources=cpp_src,  # C++ interface
-    cuda_sources=source,  # CUDA source code
-    functions=['tiled_matmul_cuda'],  # Exported functions
-    extra_cuda_cflags=['--ptxas-options=-v'],  # Additional CUDA compilation flags
-    verbose=True              # Enable verbose output during compilation
-)
-
-class ModelNew(nn.Module):
-    def __init__(self) -> None:
-        super().__init__()
-        self.tiled_matmul = tiled_matmul
-
-    def forward(self, a, b):
-        return self.tiled_matmul.tiled_matmul_cuda(a, b)
