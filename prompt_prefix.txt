@@ -30,7 +30,7 @@ def get_init_inputs():
 
 The example new arch with custom CUDA kernels looks like this: 
 
-```
+<kernel_cu>
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -59,38 +59,9 @@ torch::Tensor elementwise_add_cuda(torch::Tensor a, torch::Tensor b) {
 
     return out;
 }
-"""
+</kernel_cu>
 
-elementwise_add_cpp_source = "torch::Tensor elementwise_add_cuda(torch::Tensor a, torch::Tensor b);"
-
-# Compile the inline CUDA code for element-wise addition
-elementwise_add = load_inline(
-    name='elementwise_add',
-    cpp_sources=elementwise_add_cpp_source,
-    cuda_sources=elementwise_add_source,
-    functions=['elementwise_add_cuda'],
-    verbose=True,
-    extra_cflags=[''],
-    extra_ldflags=['']
-)
-
-class ModelNew(nn.Module):
-    def __init__(self) -> None:
-        super().__init__()
-        self.elementwise_add = elementwise_add
-
-    def forward(self, a, b):
-        return self.elementwise_add.elementwise_add_cuda(a, b)
-
-def get_inputs():
-    # randomly generate input tensors based on the model architecture
-    a = torch.randn(4096).cuda()
-    b = torch.randn(4096).cuda()
-    return [a, b]
-
-def get_init_inputs():
-    # randomly generate tensors required for initialization based on the model architecture
-    return []
-``` 
-        
-You are given the following architecture: 
+# Method Signature
+<cpp_kernel>
+torch::Tensor elementwise_add_cuda(torch::Tensor a, torch::Tensor b);
+</cpp_kernel>

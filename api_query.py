@@ -7,6 +7,8 @@ from datetime import datetime
 import concurrent.futures
 import time
 import random
+from prompt_construction import prompt_generate_ex_with_CoT_template
+from utils import extract_method_name, extract_kernels_from_text, save_reasoning, save_kernels
 
 os.environ["NIM_ENABLE_KV_CACHE_REUSE"] = "1"
 
@@ -20,48 +22,7 @@ NUM_SAMPLES = 1
 BASE_URL = "https://integrate.api.nvidia.com/v1"
 EXTRACTION_MODEL = "qwen/qwen2.5-7b-instruct" #"meta/llama-3.2-3b-instruct"
 DEEPSEEKR1_MODEL = "deepseek-ai/deepseek-r1"
-  
-def save_reasoning(results: List[str], filename: str = "results.txt"):
-    """
-    Saves the generated results to a specified file.
 
-    Args:
-        results (List[str]): The list of string results to save.
-        filename (str): The filename where results will be saved.
-    """
-    # Ensure the output directory exists
-    directory = os.path.dirname(filename)
-    if directory and not os.path.exists(directory):
-        os.makedirs(directory)
-
-    with open(filename, "w") as file:
-        for idx, result in enumerate(results, start=1):
-            file.write(f"Result {idx}:\n")
-            file.write(f"{result}\n")
-            file.write("-" * 50 + "\n")
-    print(f"Results saved to {filename}")
-
-def save_kernels(kernels: List[Tuple[str, str]], directory="sample"):
-    
-    # Get the current date and time for the filename
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    directory = f"{directory}/{timestamp}"
-    # Ensure the output directory exists
-    if not os.path.exists(directory):
-        os.makedirs(directory)
-
-    for idx, (cpp_kernel, cuda_kernel) in enumerate(kernels):
-        cpp_filename = os.path.join(directory, f"/kernel_{idx}.cpp")
-        cu_filename = os.path.join(directory, f"kernel_{idx}.cu")
-
-        with open(cpp_filename, "w") as cpp_file:
-            cpp_file.write(cpp_kernel)
-        print(f"Saved C++ kernel to {cpp_filename}")
-
-        # Save the cuda_kernel to a file
-        with open(cu_filename, "w") as cu_file:
-            cu_file.write(cuda_kernel)
-        print(f"Saved CUDA kernel to {cu_filename}")
 
 def initialize_client(api_key = API_KEY, base_url="https://integrate.api.nvidia.com/v1"):
     return OpenAI(
@@ -75,16 +36,21 @@ def query_kernel_generation(client: OpenAI,
                  additional_context: str = "",
                  stream = True) -> str:
     
-    with open(PROMPT_PREFIX_PATH, 'r') as file:
-        prompt_prefix = file.read()
-    with open(PROMPT_POSTFIX_PATH, 'r') as file:
-        prompt_postfix = file.read()
+    if False:
+        with open(PROMPT_PREFIX_PATH, 'r') as file:
+            prompt_prefix = file.read()
+        with open(PROMPT_POSTFIX_PATH, 'r') as file:
+            prompt_postfix = file.read()
 
-    if len(additional_context) == 0:
-        system_prompt = f"{prompt_prefix} {pytorch_function} {prompt_postfix}"
+        if len(additional_context) == 0:
+            system_prompt = f"{prompt_prefix} {pytorch_function} {prompt_postfix}"
+        else:
+            system_prompt = f"{prompt_prefix} {pytorch_function} Here is Feedback for Your Last Function {additional_context}  {prompt_postfix}"
     else:
-        system_prompt = f"{prompt_prefix} {pytorch_function} Here is Feedback for Your Last Function {additional_context}  {prompt_postfix}"
-    
+        system_prompt = prompt_generate_ex_with_CoT_template(
+            ref_arch_src = pytorch_function,
+            cot_example = "ex_fuse_gelu")
+        
     completion = client.chat.completions.create(
         model=model_type,
         messages= [
@@ -112,21 +78,20 @@ def query_extraction(response_text, refinement_client, model_type, system_prompt
         You are given a text that contains CUDA wrapper code for kernel.cpp and kernel.cu. 
         Your task is to extract the relevant code and return it structured within XML-like tags, as shown below:
 
-
         <kernel_cu>
         <insert the complete kernel.cu code here>
         </kernel_cu>
 
-
         <cpp_kernel>
-        <insert the complete kernel.cpp code here>
+        <insert only the kernel.cpp method signature here, as a single-line declaration with same name as kernel.cu>
         </cpp_kernel>
 
-
         Rules:
-        0. Ensure the name of the functions in both are the same
+        0. IMPORTANT!!! Ensure the name of the functions in both are the same.
+        3. For kernel.cpp, return only the function signature as a single line, e.g., `torch::Tensor function_name(torch::Tensor a, torch::Tensor b);`
         1. Do not include any text or comments outside of the specified tags.
         2. Ensure that each section is complete and valid, containing only the respective code for kernel.cpp and kernel.cu.
+        
         4. The output should end cleanly, with no extra tokens, trailing characters, or explanations.
         5. Ensure all quotes and special characters within the code are properly escaped.
 
@@ -137,7 +102,7 @@ def query_extraction(response_text, refinement_client, model_type, system_prompt
         model=model_type,
         messages=[
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": f"Extract the CUDA and C++ wrapper code (kernel.cu and kernel.cpp) from the following text:\n{response_text}"}
+            {"role": "user", "content": f"Extract the CUDA and C++ method signature (kernel.cu and kernel.cpp) from the following text:\n{response_text}"}
         ],
         temperature=0.6,
         top_p=0.7,
@@ -169,41 +134,7 @@ def process_response(reasoning_text: str,
     print(full_response)
 
     # Extract kernel.cpp and kernel.cu using XML-like tags
-    try:
-        # Find the content between <kernel_cu> and </kernel_cu>
-        cu_start = full_response.find("<kernel_cu>") + len("<kernel_cu>")
-        cu_end = full_response.find("</kernel_cu>")
-        kernel_cu = full_response[cu_start:cu_end].strip() if cu_start != -1 and cu_end != -1 else ""
-
-        # Find the content between <cpp_kernel> and </cpp_kernel>
-        cpp_start = full_response.find("<cpp_kernel>") + len("<cpp_kernel>")
-        cpp_end = full_response.find("</cpp_kernel>")
-        cpp_kernel = full_response[cpp_start:cpp_end].strip() if cpp_start != -1 and cpp_end != -1 else ""
-
-        # Return the extracted kernel.cpp and kernel.cu
-        return cpp_kernel, kernel_cu
-    except Exception as e:
-        print(f"Error parsing response: {e}")
-        return None, None
-
-def extract_kernels_from_text(full_response: str) -> Tuple[str, str]:
-    try:
-        # Find the content between <kernel_cu> and </kernel_cu>
-        cu_start = full_response.find("<kernel_cu>") + len("<kernel_cu>")
-        cu_end = full_response.find("</kernel_cu>")
-        kernel_cu = full_response[cu_start:cu_end].strip() if cu_start != -1 and cu_end != -1 else ""
-
-        # Find the content between <cpp_kernel> and </cpp_kernel>
-        cpp_start = full_response.find("<cpp_kernel>") + len("<cpp_kernel>")
-        cpp_end = full_response.find("</cpp_kernel>")
-        cpp_kernel = full_response[cpp_start:cpp_end].strip() if cpp_start != -1 and cpp_end != -1 else ""
-
-        # Return the extracted kernel.cpp and kernel.cu
-        return cpp_kernel, kernel_cu
-    except Exception as e:
-        print(f"Error parsing response: {e}")
-        return None, None
-
+    return extract_kernels_from_text(full_response)
 
 def run_single_query(client, model_type, pytorch_function, additional_context, stream, max_retries = 5):
     for attempt in range(max_retries):
@@ -221,7 +152,10 @@ def run_single_query(client, model_type, pytorch_function, additional_context, s
             time.sleep(wait_time)
     raise Exception("Max retries exceeded for query.")  # Raise an exception if all retries fail
 
-def generate_kernel(pytorch_function: str, additional_context: str = "", use_extraction_client: bool = True) -> Tuple[str, str]:
+def generate_kernel(pytorch_function: str, 
+                    additional_context: str = "", 
+                    use_extraction_client: bool = True
+                    ) -> Union[List[Tuple[str, str, str]], Tuple[str, str, str]]:
     # Initialize client and query API
     
     clients = []
@@ -246,8 +180,8 @@ def generate_kernel(pytorch_function: str, additional_context: str = "", use_ext
             generated_kernels.append(result)
             if not use_extraction_client:
                 try:
-                    cpp_kernel, cuda_kernel = extract_kernels_from_text(result)
-                    processed_kernels.append((cpp_kernel, cuda_kernel))
+                    cpp_kernel_signature, cuda_kernel = extract_kernels_from_text(result)
+                    processed_kernels.append((cpp_kernel_signature, cuda_kernel))
                     print(f"Kernel processed and collected: {len(processed_kernels)}")
                 except Exception as e:
                     print(f"Error processing a kernel: {e}")
@@ -263,17 +197,22 @@ def generate_kernel(pytorch_function: str, additional_context: str = "", use_ext
             # Collect the processed kernels (cpp_kernel, cuda_kernel) as they complete
             for future in concurrent.futures.as_completed(process_futures):
                 try:
-                    cpp_kernel, cuda_kernel = future.result()
-                    processed_kernels.append((cpp_kernel, cuda_kernel))
+                    cpp_kernel_signature, cuda_kernel = future.result()
+                    method_name = extract_method_name(cpp_signature = cpp_kernel_signature)
+                    processed_kernels.append((method_name, cuda_kernel, cpp_kernel_signature))
                     print(f"Kernel processed and collected: {len(processed_kernels)}")
                 except Exception as e:
                     print(f"Error processing a kernel: {e}")
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     output_filename = f"reasoning_results_{timestamp}.txt"
+
     save_reasoning(generated_kernels, filename=output_filename)
 
-    return processed_kernels
+    if NUM_SAMPLES > 1:
+        return processed_kernels
+    else:
+        return processed_kernels[0]
 
 if __name__ == '__main__':
     pytorch_function = """
@@ -300,8 +239,9 @@ if __name__ == '__main__':
     """
 
     kernels = generate_kernel(pytorch_function)
+    print(kernels[0], kernels[1], kernels[2])
 
-    save_kernels(kernels, directory = "sample")
+    save_kernels(kernels if NUM_SAMPLES > 1 else [kernels], directory = "sample")
 
 def debug():
 

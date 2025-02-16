@@ -1,9 +1,5 @@
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-from torch.utils.cpp_extension import load_inline
-
 source = """
+<kernel_cu>
 #include <torch/extension.h>
 #include <stdio.h>
 #include <c10/cuda/CUDAException.h>
@@ -59,30 +55,14 @@ torch::Tensor my_gelu(const torch::Tensor& inp) {
     my_gelu_out(output, inp);  // Compute GELU activation
     return output;
 }
+</kernel_cu>
 """
 
 # Define C++ source code as a string
 cpp_src = """
+<cpp_kernel>
 torch::Tensor my_gelu(const torch::Tensor& inp);
 torch::Tensor my_gelu_out(torch::Tensor output, const torch::Tensor& inp);
+</cpp_kernel>
 """
 
-# Load and compile the CUDA extension
-fused_gelu = torch.utils.cpp_extension.load_inline(
-    name="fused_gelu",  # Name of the extension
-    cpp_sources=cpp_src,  # C++ source code
-    cuda_sources=source,  # CUDA source code
-    functions=['my_gelu', 'my_gelu_out'],  # Functions to expose
-    verbose=True,
-    extra_cflags=[""],
-    extra_ldflags=[""],
-)
-
-
-class ModelNew(nn.Module):
-    def __init__(self) -> None:
-        super().__init__()
-        self.fused_gelu = fused_gelu
-
-    def forward(self, x):
-        return self.fused_gelu.my_gelu(x)
