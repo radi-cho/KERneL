@@ -159,6 +159,13 @@ def generate_multiple_kernels(
     use_extraction_client: bool = True
     ) -> Union[List[Tuple[str, str, str]], Tuple[str, str, str]]:
     
+    if clients is None:
+        clients = []
+        for i in range(NUM_SAMPLES):
+            client = initialize_client(api_key = API_KEY, base_url = BASE_URL)
+            clients.append(client)
+            print(f"Client {i} Initialized")
+
     generated_kernels = []
     processed_kernels = []
     
