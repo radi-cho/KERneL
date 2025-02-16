@@ -142,6 +142,7 @@ if st.button("🖥 Generate Computational Graph"):
         if model is None:
             raise ValueError("No valid PyTorch model found in the input code.")
         
+        os.environ["PATH"] += os.pathsep + '/usr/bin'  # Adjust this path if needed
         dot = torchviz.make_dot(model(dummy_input), params=dict(model.named_parameters()))
         
         with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmpfile:
