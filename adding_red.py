@@ -136,7 +136,7 @@ if st.button("🖥 Generate Computational Graph"):
         input_dims = tuple(map(int, tensor_dim.split(',')))
         dummy_input = torch.randn(input_dims)
         local_scope = {}
-        exec(python_code, {}, local_scope)
+        exec(python_code, local_scope)
         model = next((v for v in local_scope.values() if isinstance(v, nn.Module)), None)
         
         if model is None:
