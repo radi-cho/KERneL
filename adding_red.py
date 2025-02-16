@@ -146,7 +146,10 @@ if st.button("🖥 Generate Computational Graph"):
         
         with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmpfile:
             dot.render(tmpfile.name, format='png')
-            st.image(tmpfile.name, caption="Computational Graph")
+            image_path = tmpfile.name + ".png"
+            os.rename(tmpfile.name, image_path)
+            st.image(image_path, caption="Computational Graph")
+            os.remove(image_path)  # Clean up the file after displaying
     except SyntaxError as e:
         st.error(f"Syntax error in input code: {e}")
     except Exception as e:
