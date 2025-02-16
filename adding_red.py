@@ -4,8 +4,8 @@ import random
 from streamlit_ace import st_ace
 import torch
 import torch.nn as nn
-import torchviz
-from io import BytesIO
+from torchviz import make_dot
+import tempfile
 
 # Streamlit UI Setup - Remove Top Blank Space
 st.set_page_config(page_title="Python to CUDA Kernel Optimization", layout="wide")
@@ -123,20 +123,14 @@ with col2:
 
     st.components.v1.html(chart_html, height=250)
 
-# model visualizer
-st.markdown("---")  # Add a horizontal divider
-button_col = st.columns([1, 6, 1])[1]  # Center the button
-with button_col:
-    visualize_button = st.button("Visualize Model")
-
-# Handle Button Click
-if visualize_button:
+# Visualize button
+if st.button("Visualize Model"):
     local_vars = {}
     try:
-        # Execute user code
-        exec(python_code, {"torch": torch, "nn": nn}, local_vars)
+        # Execute the user-provided code
+        exec(user_code, globals(), local_vars)
 
-        # Attempt to retrieve the model
+        # Retrieve the model instance
         model = None
         for var in local_vars.values():
             if isinstance(var, nn.Module):
@@ -144,30 +138,23 @@ if visualize_button:
                 break
 
         if model is None:
-            raise ValueError("No valid PyTorch model found in the provided code.")
+            st.error("No valid PyTorch model found in the provided code.")
+        else:
+            # Create a sample input tensor
+            sample_input = torch.randn(1, 10)  # Adjust dimensions as needed
 
-        # Attempt to retrieve the input tensor
-        input_tensor = None
-        for var in local_vars.values():
-            if isinstance(var, torch.Tensor):
-                input_tensor = var
-                break
+            # Generate the computational graph
+            output = model(sample_input)
+            graph = make_dot(output, params=dict(model.named_parameters()))
 
-        if input_tensor is None:
-            # Infer input shape from the model's first layer
-            first_layer = next(model.parameters())
-            input_shape = first_layer.shape
-            input_tensor = torch.randn(input_shape)
+            # Render the graph to a temporary file
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmpfile:
+                graph.render(tmpfile.name, format='png')
+                tmpfile.seek(0)
+                image_data = tmpfile.read()
 
-        # Generate the computational graph
-        output = model(input_tensor)
-        graph = torchviz.make_dot(output, params=dict(model.named_parameters()))
-
-        # Render the graph to an image
-        img_buffer = BytesIO()
-        graph.render(format='png', outfile=img_buffer)
-        img_buffer.seek(0)
-        graph_placeholder.image(img_buffer, caption="Model Computational Graph", use_column_width=True)
+            # Display the image
+            st.image(image_data, caption="Model Computational Graph", use_column_width=True)
 
     except Exception as e:
         st.error(f"Error: {e}")
