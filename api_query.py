@@ -27,6 +27,8 @@ INIT_INPUT_FUNC_FLAGS = [("<model_initialization_code>", "</model_initialization
 
 API_KEY = "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"
 
+CLIENTS = []
+
 model_init_code = None
 get_input_function_code = None
 
@@ -69,6 +71,9 @@ def query_kernel_generation(client: OpenAI,
         #print("Processing text chunk...")
         content = chunk.choices[0].delta.content
         reasoning_response.append(content)
+
+        if NUM_SAMPLES == 1 and DEBUG:
+            print(content, end="")
  
     return reasoning_response
 
@@ -79,23 +84,93 @@ def query_extraction(response_text, refinement_client, model_type, system_prompt
         Your task is to extract the relevant code and return it structured within XML-like tags, as shown below:
 
         <kernel_cu>
-        <insert the complete kernel.cu code here>
+        <insert the complete CUDA code for kernel.cu here, including all helper macros, imports, and kernel function implementations>
         </kernel_cu>
 
         <cpp_kernel>
-        <insert only the kernel.cpp method signature here, as a single-line declaration with same name as kernel.cu>
+        <insert only the kernel.cpp method signature here, as a single-line declaration with the same name as the function defined in kernel.cu>
         </cpp_kernel>
 
-        Rules:
-        0. IMPORTANT!!! Ensure the name of the functions in both are the same.
-        3. For kernel.cpp, return only the function signature as a single line, e.g., `torch::Tensor function_name(torch::Tensor a, torch::Tensor b);`
-        1. Do not include any text or comments outside of the specified tags.
-        2. Ensure that each section is complete and valid, containing only the respective code for kernel.cpp and kernel.cu.
-        
-        4. The output should end cleanly, with no extra tokens, trailing characters, or explanations.
-        5. Ensure all quotes and special characters within the code are properly escaped.
+        ### Rules:
+        1. **Consistency**:
+        - The function names in `<kernel_cu>` and `<cpp_kernel>` must match.
+        - For example, if `kernel_cu` contains a function named `diag_matmul`, the `cpp_kernel` must include the corresponding signature: `torch::Tensor diag_matmul(torch::Tensor A, torch::Tensor B);`.
 
-        Return only the structured output as described above. Do not include any additional text, comments, or explanations.
+        2. **`<kernel_cu>`**:
+        - Extract the **entire CUDA code**, including:
+            - All includes (`#include`).
+            - Macros or helper definitions (e.g., `CHECK_CUDA`, `CHECK_INPUT`).
+            - All kernel implementations (`__global__ void` functions).
+            - Any wrapper functions defined in `kernel.cu` (e.g., `diag_matmul` in the example).
+        - Ensure the extracted code is complete and compilable.
+
+        3. **`<cpp_kernel>`**:
+        - Extract only the function signature for the CUDA wrapper.
+        - Format the signature on a single line, e.g., `torch::Tensor diag_matmul(torch::Tensor A, torch::Tensor B);`.
+
+        4. **No Extra Content**:
+        - Do not include any comments, explanations, or text outside the specified tags.
+        - Ensure the output ends cleanly without trailing characters or extra tokens.
+
+        5. **Proper Escaping**:
+        - Ensure all quotes and special characters in the extracted code are properly escaped to maintain valid syntax.
+
+        ---
+
+        ### Example Input:
+        ```cpp
+        #include <torch/extension.h>
+        #include <cuda.h>
+        #include <cuda_runtime.h>
+
+        #define CHECK_CUDA(x) TORCH_CHECK(x.device().is_cuda(), #x " must be a CUDA tensor")
+        #define CHECK_CONTIGUOUS(x) TORCH_CHECK(x.is_contiguous(), #x " must be contiguous")
+        #define CHECK_INPUT(x) CHECK_CUDA(x); CHECK_CONTIGUOUS(x)
+
+        __global__ void diag_matmul_kernel(
+            float* output,
+            const float* A,
+            const float* B,
+            const int N,
+            const int M
+        ) {
+            const int i = blockIdx.x * blockDim.x + threadIdx.x;
+            const int j = blockIdx.y * blockDim.y + threadIdx.y;
+
+            if (i < N && j < M) {
+                output[i * M + j] = A[i] * B[i * M + j];
+            }
+        }
+
+        torch::Tensor diag_matmul(const torch::Tensor& A, const torch::Tensor& B) {
+            CHECK_INPUT(A);
+            CHECK_INPUT(B);
+            
+            const int N = A.size(0);
+            const int M = B.size(1);
+            auto output = torch::empty({N, M}, A.options());
+
+            const dim3 threads(16, 16);
+            const dim3 blocks(
+                (N + threads.x - 1) / threads.x,
+                (M + threads.y - 1) / threads.y
+            );
+
+            diag_matmul_kernel<<<blocks, threads>>>(
+                output.data_ptr<float>(),
+                A.data_ptr<float>(),
+                B.data_ptr<float>(),
+                N,
+                M
+            );
+
+            return output;
+        }
+
+        PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
+            m.def("diag_matmul", &diag_matmul, "Diagonal matrix multiplication (CUDA)");
+        }
+
         """
        
     completion = refinement_client.chat.completions.create(
@@ -115,7 +190,9 @@ def query_extraction(response_text, refinement_client, model_type, system_prompt
 def parse_reasoning_response(reasoning_text: str, 
                      refinement_client: OpenAI, 
                      refinement_type: str) -> Tuple[str, str]:
-    
+    """
+    returns kernel_cu, kernel_cpp as str
+    """
     extracted_answers = query_extraction(response_text = reasoning_text, 
                                    refinement_client = refinement_client, 
                                    model_type = refinement_type, 
@@ -155,15 +232,13 @@ def generate_single_kernel(client, model_type, pytorch_function, additional_cont
 def generate_multiple_kernels(
     pytorch_function: str, 
     additional_context: str = "", 
-    clients: List[OpenAI] = None,
     use_extraction_client: bool = True
     ) -> Union[List[Tuple[str, str, str]], Tuple[str, str, str]]:
     
-    if clients is None:
-        clients = []
+    if len(CLIENTS) == 0:
         for i in range(NUM_SAMPLES):
             client = initialize_client(api_key = API_KEY, base_url = BASE_URL)
-            clients.append(client)
+            CLIENTS.append(client)
             print(f"Client {i} Initialized")
 
     generated_kernels = []
@@ -171,7 +246,7 @@ def generate_multiple_kernels(
     
     with concurrent.futures.ThreadPoolExecutor() as executor:
         futures = [
-            executor.submit(generate_single_kernel, clients[query_id], 
+            executor.submit(generate_single_kernel, CLIENTS[query_id], 
                             DEEPSEEKR1_MODEL, pytorch_function, 
                             additional_context, True)
             for query_id in range(NUM_SAMPLES)
@@ -193,14 +268,14 @@ def generate_multiple_kernels(
         with concurrent.futures.ThreadPoolExecutor() as executor:
             # Submit processing tasks for each generated kernel
             process_futures = [
-                executor.submit(parse_reasoning_response, completion, clients[id], EXTRACTION_MODEL)
+                executor.submit(parse_reasoning_response, completion, CLIENTS[id], EXTRACTION_MODEL)
                 for id, completion in enumerate(generated_kernels)
             ]
 
             # Collect the processed kernels (cpp_kernel, cuda_kernel) as they complete
             for future in concurrent.futures.as_completed(process_futures):
                 try:
-                    cpp_kernel_signature, cuda_kernel = future.result()
+                    cuda_kernel, cpp_kernel_signature = future.result()
                     method_name = extract_method_name(cpp_signature = cpp_kernel_signature)
                     processed_kernels.append((method_name, cuda_kernel, cpp_kernel_signature))
                     print(f"Kernel processed and collected: {len(processed_kernels)}")
@@ -218,11 +293,16 @@ def generate_multiple_kernels(
         return processed_kernels[0]
 
 def get_init_and_input_function(
-        client: OpenAI,
         model_type: str, 
         pytorch_function: str, 
         stream = True) -> Tuple[str, str]:
     global model_init_code, get_input_function_code 
+
+    if len(CLIENTS) == 0:
+        for i in range(NUM_SAMPLES):
+            client = initialize_client(api_key = API_KEY, base_url = BASE_URL)
+            CLIENTS.append(client)
+            print(f"Client {i} Initialized")
 
     system_prompt = """
     You are an expert in analyzing PyTorch code. Your task is to identify the main PyTorch model defined in the given code, analyze its forward function, and write Python code that initializes the model and generates random inputs for its forward function. Follow these rules:
@@ -289,15 +369,7 @@ def main(
     ):
     global model_init_code, get_input_function_code 
 
-    # Initialize client and query API
-    clients = []
-    for i in range(NUM_SAMPLES):
-        client = initialize_client(api_key = API_KEY, base_url = BASE_URL)
-        clients.append(client)
-        print(f"Client {i} Initialized")
-
     model_init, get_input_func = get_init_and_input_function(
-        client = clients[0],
         model_type = EXTRACTION_MODEL,
         pytorch_function = pytorch_function)
     
@@ -308,10 +380,9 @@ def main(
     additional_context = f"{model_context} {additional_context}"
 
     kernels = generate_multiple_kernels(
-                            clients = clients, 
-                            pytorch_function = pytorch_function, 
-                            additional_context = additional_context, 
-                            use_extraction_client = use_extraction_client)
+        pytorch_function = pytorch_function, 
+        additional_context = additional_context, 
+        use_extraction_client = use_extraction_client)
     
     print(f"func_name {kernels[0]} \n cuda_code: {kernels[1]} \n cpp_method_signature {kernels[2]}")
 

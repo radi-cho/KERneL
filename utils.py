@@ -36,27 +36,6 @@ def extract_method_name(cpp_signature: str) -> str:
     return ""  # Return an empty string if no match is found
 
 
-def extract_kernels_from_text(full_response: str) -> Tuple[str, str]:
-    flags = [("<kernel_cu>", "</kernel_cu>"), ("<cpp_kernel>", "</cpp_kernel>")]
-    
-    
-    try:
-        # Find the content between <kernel_cu> and </kernel_cu>
-        cu_start = full_response.find("<kernel_cu>") + len("<kernel_cu>")
-        cu_end = full_response.find("</kernel_cu>")
-        kernel_cu = full_response[cu_start:cu_end].strip() if cu_start != -1 and cu_end != -1 else ""
-
-        # Find the content between <cpp_kernel> and </cpp_kernel>
-        cpp_start = full_response.find("<cpp_kernel>") + len("<cpp_kernel>")
-        cpp_end = full_response.find("</cpp_kernel>")
-        cpp_kernel_signature = full_response[cpp_start:cpp_end].strip() if cpp_start != -1 and cpp_end != -1 else ""
-
-        # Return the extracted kernel.cpp and kernel.cu
-        return cpp_kernel_signature, kernel_cu
-    except Exception as e:
-        print(f"Error parsing response: {e}")
-        return None, None
-
 def extract_from_text(full_response: str, flags: List[Tuple[str, str]]) -> Tuple[str, str, str]:
     try:
         results = []
