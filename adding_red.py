@@ -5,29 +5,9 @@ from streamlit_ace import st_ace
 
 import torch
 import torch.nn as nn
-from torchviz import make_dot
-import ast
-import inspect
-import tempfile
-
-# Function to extract the forward method's argument names
-def get_forward_args(model):
-    forward_fn = model.forward
-    sig = inspect.signature(forward_fn)
-    return list(sig.parameters.keys())
-
-# Function to parse the user-provided code and extract the model class
-def parse_model_class(user_code):
-    module = ast.parse(user_code)
-    class_def = None
-    for node in module.body:
-        if isinstance(node, ast.ClassDef):
-            for base in node.bases:
-                if (isinstance(base, ast.Attribute) and base.attr == 'Module') or \
-                   (isinstance(base, ast.Name) and base.id == 'Module'):
-                    class_def = node
-                    break
-    return class_def
+import torchviz
+from streamlit_ace import st_ace
+from io import BytesIO
 
 # Streamlit UI Setup - Remove Top Blank Space
 st.set_page_config(page_title="Python to CUDA Kernel Optimization", layout="wide")
@@ -45,6 +25,10 @@ with col1:
         height=400,  # **Slightly reduced height**
         key="python_code_editor"
     )
+    
+    # **Tensor Input Dimension Section**
+    st.markdown("📏 **Specify Tensor Input Dimensions**", unsafe_allow_html=True)
+    tensor_dim = st.text_input("Enter tensor dimensions (e.g., 1, 3, 224, 224)", "1, 3, 224, 224")
 
     # **Hardware Selection & Optimization Duration (Always Visible)**
     st.markdown("⚙️ **Optimization Settings**", unsafe_allow_html=True)
@@ -145,54 +129,25 @@ with col2:
 
     st.components.v1.html(chart_html, height=250)
 
-# Visualize button
-if st.button("Visualize Model"):
-    local_vars = {}
+# **🔹 Visualization Panel**
+st.markdown("🖼 **Model Computational Graph**", unsafe_allow_html=True)
+if st.button("🖥 Generate Computational Graph"):
     try:
-        # Execute the user-provided code
-        exec(python_code, globals(), local_vars)
-
-        # Retrieve the model instance
-        model = None
-        for var in local_vars.values():
-            if isinstance(var, nn.Module):
-                model = var
-                break
-
+        input_dims = tuple(map(int, tensor_dim.split(',')))
+        dummy_input = torch.randn(input_dims)
+        local_scope = {}
+        exec(python_code, {}, local_scope)
+        model = next((v for v in local_scope.values() if isinstance(v, nn.Module)), None)
+        
         if model is None:
-            st.error("No valid PyTorch model found in the provided code.")
-        else:
-            # Extract the forward method's argument names
-            forward_args = get_forward_args(model)
-            if len(forward_args) < 2:
-                st.error("The forward method should have at least one input argument.")
-            else:
-                input_arg = forward_args[1]  # The first argument after 'self'
-                # Prompt user for input tensor dimensions
-                input_shape = st.text_input(f"Enter the shape of the input tensor for '{input_arg}' (e.g., 1, 3, 224, 224):")
-                if input_shape:
-                    try:
-                        # Convert input shape to a tuple of integers
-                        input_shape = tuple(map(int, input_shape.split(',')))
-                        # Create a sample input tensor with the specified shape
-                        sample_input = torch.randn(input_shape)
-                        # Generate the computational graph
-                        output = model(sample_input)
-                        graph = make_dot(output, params=dict(model.named_parameters()))
-
-                        # Render the graph to a temporary file
-                        with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmpfile:
-                            graph.render(tmpfile.name, format='png')
-                            tmpfile.seek(0)
-                            image_data = tmpfile.read()
-
-                        # Display the image
-                        st.image(image_data, caption="Model Computational Graph", use_column_width=True)
-                    except Exception as e:
-                        st.error(f"An error occurred while processing the input shape: {e}")
-    
+            raise ValueError("No valid PyTorch model found in the input code.")
+        
+        dot = torchviz.make_dot(model(dummy_input), params=dict(model.named_parameters()))
+        image_stream = BytesIO()
+        dot.render(format='png', outfile=image_stream)
+        st.image(image_stream.getvalue(), caption="Computational Graph")
     except Exception as e:
-        st.error(f"Error: {e}")
+        st.error(f"Error generating visualization: {e}")
         
 # **🔹 Button to Transform Python Code (Future AI Model)**
 st.markdown("⚙️ **Transform Python to CUDA Kernel**", unsafe_allow_html=True)
