@@ -308,18 +308,35 @@ def get_init_and_input_function(
     You are an expert in analyzing PyTorch code. Your task is to identify the main PyTorch model defined in the given code, analyze its forward function, and write Python code that initializes the model and generates random inputs for its forward function. Follow these rules:
 
     ### Input:
-    You will receive a Python script written in PyTorch. The script may contain multiple classes, functions, and model definitions.
+    You will receive a Python script written in PyTorch. The script may contain:
+    1. Multiple classes and model definitions.
+    2. Standalone functions, including functions like `get_inputs`.
 
     ### Task:
-    1. Identify the main PyTorch model class based on the presence of a `forward` method.
-    - The main model is usually the class containing the primary `forward` function used in training or inference.
+    1. **Identify the Main PyTorch Model**:
+    - If the code contains a class with a `forward` method, identify it as the main model.
     - Write code to initialize the model with reasonable default parameters. Assume default arguments for any constructor parameters unless explicitly defined in the code.
 
-    2. Identify the inputs to the `forward` function:
-    - Analyze the `forward` method to determine the input arguments, their expected data types (`dtype`), and dimensions.
-    - Write a Python function (`get_inputs`) that generates random tensors matching the expected `dtype` and dimensions.
+    2. **Handle Standalone Functions**:
+    - If the provided code does **not** contain a model class but only a standalone function, wrap the function in a PyTorch model class and store the resulting model in a variable named `model`. Example:
+        ```python
+        class WrappedModel(nn.Module):
+            def __init__(self):
+                super().__init__()
+            
+            def forward(self, *args, **kwargs):
+                return <function_name>(*args, **kwargs)
 
-    3. If the model constructor requires specific initialization inputs, write a separate function (`get_init_inputs`) to generate these random inputs.
+        model = WrappedModel()
+        ```
+
+    3. **Handle Existing `get_inputs` Function**:
+    - If the provided code contains a function named `get_inputs`, return an empty string (`""`) for the input function.
+
+    4. **Generate Input Function**:
+    - If the code does not contain a `get_inputs` function, analyze the `forward` method to determine the input arguments, their expected data types (`dtype`), and dimensions.
+    - Write a Python function (`get_inputs`) that generates random tensors matching the expected `dtype` and dimensions.
+    - IMPORTANT Use a power of 2 greater than 2^10 for any dimensions, such that the GPU can properly be utilized.
 
     ### Output Format:
     Return the output in the following structured XML-like format:
@@ -330,7 +347,7 @@ def get_init_and_input_function(
     </model_initialization_code>
 
     <input_function>
-    <function that generates random inputs for the forward function>
+    <function that generates random inputs for the forward function, or an empty string if `get_inputs` already exists>
     </input_function>
 
     """
@@ -359,6 +376,9 @@ def get_init_and_input_function(
         full_response, 
         flags = INIT_INPUT_FUNC_FLAGS)
     
+    if "def get_inputs():" in pytorch_function:
+        get_input_function_code = ""
+
     return model_init_code, get_input_function_code
 
 
@@ -413,6 +433,19 @@ if __name__ == '__main__':
     def get_init_inputs():
         return []  # No special initialization inputs needed
     """
+
+    print("def get_inputs():" in pytorch_function)
+
+    if False:
+        pytorch_function = """
+        import torch
+        import torch.nn as nn
+
+
+        def forward(self, A, B):
+            return torch.diag(A) @ B
+
+        """
 
     main(pytorch_function)
 
