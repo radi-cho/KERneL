@@ -377,7 +377,7 @@ def get_init_and_input_function(
         flags = INIT_INPUT_FUNC_FLAGS)
     
     if "def get_inputs():" in pytorch_function:
-        get_init_and_input_function = ""
+        get_input_function_code = ""
 
     return model_init_code, get_input_function_code
 
@@ -434,15 +434,18 @@ if __name__ == '__main__':
         return []  # No special initialization inputs needed
     """
 
-    pytorch_function = """
-    import torch
-    import torch.nn as nn
+    print("def get_inputs():" in pytorch_function)
+
+    if False:
+        pytorch_function = """
+        import torch
+        import torch.nn as nn
 
 
-    def forward(self, A, B):
-        return torch.diag(A) @ B
+        def forward(self, A, B):
+            return torch.diag(A) @ B
 
-    """
+        """
 
     main(pytorch_function)
 
