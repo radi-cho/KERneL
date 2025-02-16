@@ -143,9 +143,10 @@ if st.button("🖥 Generate Computational Graph"):
             raise ValueError("No valid PyTorch model found in the input code.")
         
         dot = torchviz.make_dot(model(dummy_input), params=dict(model.named_parameters()))
-        image_stream = BytesIO()
-        dot.render(format='png', outfile=image_stream)
-        st.image(image_stream.getvalue(), caption="Computational Graph")
+        
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmpfile:
+            dot.render(tmpfile.name, format='png')
+            st.image(tmpfile.name, caption="Computational Graph")
     except SyntaxError as e:
         st.error(f"Syntax error in input code: {e}")
     except Exception as e:
