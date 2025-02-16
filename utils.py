@@ -3,6 +3,16 @@ from typing import Union, Tuple, List
 import os
 import time
 from datetime import datetime
+from openai import OpenAI
+
+API_KEY = "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"
+
+
+def initialize_client(api_key = API_KEY, base_url="https://integrate.api.nvidia.com/v1"):
+    return OpenAI(
+        base_url = base_url,
+        api_key = api_key
+    )
 
 def extract_method_name(cpp_signature: str) -> str:
     """
@@ -26,8 +36,10 @@ def extract_method_name(cpp_signature: str) -> str:
     return ""  # Return an empty string if no match is found
 
 
-
 def extract_kernels_from_text(full_response: str) -> Tuple[str, str]:
+    flags = [("<kernel_cu>", "</kernel_cu>"), ("<cpp_kernel>", "</cpp_kernel>")]
+    
+    
     try:
         # Find the content between <kernel_cu> and </kernel_cu>
         cu_start = full_response.find("<kernel_cu>") + len("<kernel_cu>")
@@ -44,6 +56,18 @@ def extract_kernels_from_text(full_response: str) -> Tuple[str, str]:
     except Exception as e:
         print(f"Error parsing response: {e}")
         return None, None
+
+def extract_from_text(full_response: str, flags: List[Tuple[str, str]]) -> Tuple[str, str, str]:
+    try:
+        results = []
+        for idx, (flag_start, flag_stop) in enumerate(flags):
+            idx_start = full_response.find(flag_start) + len(flag_start)
+            idx_end = full_response.find(flag_stop)
+            results.append(full_response[idx_start:idx_end].strip() if idx_start != -1 and idx_end != -1 else "")
+        return tuple(results)
+    except Exception as e:
+        print(f"Error parsing response: {e}")
+        return tuple([None for _ in flags])
 
 
 def save_reasoning(results: List[str], filename: str = "results.txt"):

@@ -1,34 +1,34 @@
 from openai import OpenAI
 import json
-from typing import Union, Tuple, List
+from typing import Union, Tuple, List, Callable, Any
 import os
 import requests
 from datetime import datetime
 import concurrent.futures
+import torch.nn as nn
 import time
 import random
 from prompt_construction import prompt_generate_ex_with_CoT_template
-from utils import extract_method_name, extract_kernels_from_text, save_reasoning, save_kernels
+from utils import extract_method_name, save_reasoning, save_kernels, extract_from_text, initialize_client
 
-os.environ["NIM_ENABLE_KV_CACHE_REUSE"] = "1"
-
-API_KEY = "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"
 PROMPT_PREFIX_PATH = "prompt_prefix.txt"
 PROMPT_POSTFIX_PATH = "prompt_postfix.txt"
 MAX_REASONING_TOKENS = 2000
-MAX_REFINEMENT_TOKENS = 1000
+MAX_EXTRACTION_TOKENS = 1000
 NUM_SAMPLES = 1
 
+DEBUG = True
 BASE_URL = "https://integrate.api.nvidia.com/v1"
 EXTRACTION_MODEL = "qwen/qwen2.5-7b-instruct" #"meta/llama-3.2-3b-instruct"
 DEEPSEEKR1_MODEL = "deepseek-ai/deepseek-r1"
 
+KERNEL_CU_CPP_FLAGS = [("<kernel_cu>", "</kernel_cu>"), ("<cpp_kernel>", "</cpp_kernel>")]
+INIT_INPUT_FUNC_FLAGS = [("<model_initialization_code>", "</model_initialization_code>"), ("<input_function>", "</input_function>")]
 
-def initialize_client(api_key = API_KEY, base_url="https://integrate.api.nvidia.com/v1"):
-    return OpenAI(
-        base_url = base_url,
-        api_key = api_key
-    )
+API_KEY = "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"
+
+model_init_code = None
+get_input_function_code = None
 
 def query_kernel_generation(client: OpenAI, 
                  model_type: str, 
@@ -106,13 +106,13 @@ def query_extraction(response_text, refinement_client, model_type, system_prompt
         ],
         temperature=0.6,
         top_p=0.7,
-        max_tokens= MAX_REFINEMENT_TOKENS,  # Adjusted for larger responses
+        max_tokens= MAX_EXTRACTION_TOKENS,  # Adjusted for larger responses
         stream=stream
     )
 
     return completion
 
-def process_response(reasoning_text: str, 
+def parse_reasoning_response(reasoning_text: str, 
                      refinement_client: OpenAI, 
                      refinement_type: str) -> Tuple[str, str]:
     
@@ -132,11 +132,11 @@ def process_response(reasoning_text: str,
 
     print("\nFinished streaming response:")
     print(full_response)
-
+    
     # Extract kernel.cpp and kernel.cu using XML-like tags
-    return extract_kernels_from_text(full_response)
+    return extract_from_text(full_response, KERNEL_CU_CPP_FLAGS)
 
-def run_single_query(client, model_type, pytorch_function, additional_context, stream, max_retries = 5):
+def generate_single_kernel(client, model_type, pytorch_function, additional_context, stream, max_retries = 5):
     for attempt in range(max_retries):
         try:
             return query_kernel_generation(
@@ -152,23 +152,19 @@ def run_single_query(client, model_type, pytorch_function, additional_context, s
             time.sleep(wait_time)
     raise Exception("Max retries exceeded for query.")  # Raise an exception if all retries fail
 
-def generate_kernel(pytorch_function: str, 
-                    additional_context: str = "", 
-                    use_extraction_client: bool = True
-                    ) -> Union[List[Tuple[str, str, str]], Tuple[str, str, str]]:
-    # Initialize client and query API
-    
-    clients = []
-    for i in range(NUM_SAMPLES):
-        client = initialize_client(api_key = API_KEY, base_url = BASE_URL)
-        clients.append(client)
-        print(f"Client {i} Initialized")
+def generate_multiple_kernels(
+    pytorch_function: str, 
+    additional_context: str = "", 
+    clients: List[OpenAI] = None,
+    use_extraction_client: bool = True
+    ) -> Union[List[Tuple[str, str, str]], Tuple[str, str, str]]:
     
     generated_kernels = []
     processed_kernels = []
+    
     with concurrent.futures.ThreadPoolExecutor() as executor:
         futures = [
-            executor.submit(run_single_query, clients[query_id], 
+            executor.submit(generate_single_kernel, clients[query_id], 
                             DEEPSEEKR1_MODEL, pytorch_function, 
                             additional_context, True)
             for query_id in range(NUM_SAMPLES)
@@ -180,7 +176,7 @@ def generate_kernel(pytorch_function: str,
             generated_kernels.append(result)
             if not use_extraction_client:
                 try:
-                    cpp_kernel_signature, cuda_kernel = extract_kernels_from_text(result)
+                    cpp_kernel_signature, cuda_kernel = extract_from_text(result, flags = KERNEL_CU_CPP_FLAGS)
                     processed_kernels.append((cpp_kernel_signature, cuda_kernel))
                     print(f"Kernel processed and collected: {len(processed_kernels)}")
                 except Exception as e:
@@ -190,8 +186,8 @@ def generate_kernel(pytorch_function: str,
         with concurrent.futures.ThreadPoolExecutor() as executor:
             # Submit processing tasks for each generated kernel
             process_futures = [
-                executor.submit(process_response, completion, client, EXTRACTION_MODEL)
-                for completion in generated_kernels
+                executor.submit(parse_reasoning_response, completion, clients[id], EXTRACTION_MODEL)
+                for id, completion in enumerate(generated_kernels)
             ]
 
             # Collect the processed kernels (cpp_kernel, cuda_kernel) as they complete
@@ -213,6 +209,108 @@ def generate_kernel(pytorch_function: str,
         return processed_kernels
     else:
         return processed_kernels[0]
+
+def get_init_and_input_function(
+        client: OpenAI,
+        model_type: str, 
+        pytorch_function: str, 
+        stream = True) -> Tuple[str, str]:
+    global model_init_code, get_input_function_code 
+
+    system_prompt = """
+    You are an expert in analyzing PyTorch code. Your task is to identify the main PyTorch model defined in the given code, analyze its forward function, and write Python code that initializes the model and generates random inputs for its forward function. Follow these rules:
+
+    ### Input:
+    You will receive a Python script written in PyTorch. The script may contain multiple classes, functions, and model definitions.
+
+    ### Task:
+    1. Identify the main PyTorch model class based on the presence of a `forward` method.
+    - The main model is usually the class containing the primary `forward` function used in training or inference.
+    - Write code to initialize the model with reasonable default parameters. Assume default arguments for any constructor parameters unless explicitly defined in the code.
+
+    2. Identify the inputs to the `forward` function:
+    - Analyze the `forward` method to determine the input arguments, their expected data types (`dtype`), and dimensions.
+    - Write a Python function (`get_inputs`) that generates random tensors matching the expected `dtype` and dimensions.
+
+    3. If the model constructor requires specific initialization inputs, write a separate function (`get_init_inputs`) to generate these random inputs.
+
+    ### Output Format:
+    Return the output in the following structured XML-like format:
+
+    ```plaintext
+    <model_initialization_code>
+    <insert the model initialization code here>
+    </model_initialization_code>
+
+    <input_function>
+    <function that generates random inputs for the forward function>
+    </input_function>
+
+    """
+       
+    completion = client.chat.completions.create(
+        model=model_type,
+        messages=[
+            {"role": "system", "content": system_prompt.strip()},
+            {"role": "user", "content": f"Extract the model type, dtype, and dimensions of the input from the following PyTorch code:\n\n{pytorch_function.strip()}"}
+        ],
+        temperature=0.6,
+        top_p=0.7,
+        max_tokens = MAX_EXTRACTION_TOKENS,  # Adjusted for larger responses
+        stream=stream
+    )
+
+    response = []
+    for chunk in completion:
+        content = chunk.choices[0].delta.content
+        if content:
+            response.append(content)
+
+    # Combine the response chunks into a full response string
+    full_response = "".join(response).strip()
+    model_init_code, get_input_function_code = extract_from_text(
+        full_response, 
+        flags = INIT_INPUT_FUNC_FLAGS)
+    
+    return model_init_code, get_input_function_code
+
+
+def main(
+    pytorch_function: str, 
+    additional_context: str = "", 
+    use_extraction_client: bool = True
+    ):
+    global model_init_code, get_input_function_code 
+
+    # Initialize client and query API
+    clients = []
+    for i in range(NUM_SAMPLES):
+        client = initialize_client(api_key = API_KEY, base_url = BASE_URL)
+        clients.append(client)
+        print(f"Client {i} Initialized")
+
+    model_init, get_input_func = get_init_and_input_function(
+        client = clients[0],
+        model_type = EXTRACTION_MODEL,
+        pytorch_function = pytorch_function)
+    
+    print(f"model_init_code: \n{model_init_code}")
+    print(f"model_init_code: \n{get_input_function_code}")
+
+    model_context = f"The forward function you are creating is from {model_init} with input parameters sampled from {get_input_func}"
+    additional_context = f"{model_context} {additional_context}"
+
+    kernels = generate_multiple_kernels(
+                            clients = clients, 
+                            pytorch_function = pytorch_function, 
+                            additional_context = additional_context, 
+                            use_extraction_client = use_extraction_client)
+    
+    print(f"func_name {kernels[0]} \n cuda_code: {kernels[1]} \n cpp_method_signature {kernels[2]}")
+
+    save_kernels(kernels if NUM_SAMPLES > 1 else [kernels], directory = "sample")
+
+    return {"model_init_func": model_init, "get_input_func": get_input_func, "kernels": kernels}
 
 if __name__ == '__main__':
     pytorch_function = """
@@ -238,10 +336,7 @@ if __name__ == '__main__':
         return []  # No special initialization inputs needed
     """
 
-    kernels = generate_kernel(pytorch_function)
-    print(kernels[0], kernels[1], kernels[2])
-
-    save_kernels(kernels if NUM_SAMPLES > 1 else [kernels], directory = "sample")
+    main(pytorch_function)
 
 def debug():
 
