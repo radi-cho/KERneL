@@ -72,7 +72,7 @@ def initialize_task():
     try:
         data = request.get_json()
         python_source = data.get("python_source", "")
-        num_trials = data.get("num_trials", 100)
+        num_trials = data.get("num_trials", 1)
 
         model_init_code, get_input_function_code = get_init_and_input_function(python_source)
         imports = """
@@ -107,7 +107,7 @@ def get_kernel():
     try:
         data = request.get_json()
 
-        num_trials = data.get("num_trials", 100)
+        num_trials = data.get("num_trials", 1)
         task_id = data.get("task_id", "")
         source, _, inputs, history = TASKS[task_id]
 
