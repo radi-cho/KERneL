@@ -53,7 +53,7 @@ def query_kernel_generation(client: OpenAI,
             ref_arch_src = pytorch_function,
             cot_example = "ex_fuse_gelu")
         
-    completion = client.chat.completions.create(
+    completion = CLIENTS[0].chat.completions.create(
         model=model_type,
         messages= [
             {"role": "system", "content": system_prompt},
@@ -352,7 +352,7 @@ def get_init_and_input_function(
 
     """
        
-    completion = client.chat.completions.create(
+    completion = CLIENTS[0].chat.completions.create(
         model=model_type,
         messages=[
             {"role": "system", "content": system_prompt.strip()},
