@@ -1,4 +1,4 @@
-def llm_query(python_source, additional_context):
+def llm_query(pytorch_function, additional_context):
     function_name = "diag_matmul_cuda"
     cuda = """
 #include <torch/extension.h>
