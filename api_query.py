@@ -293,8 +293,8 @@ def generate_multiple_kernels(
         return processed_kernels[0]
 
 def get_init_and_input_function(
-        model_type: str, 
         pytorch_function: str, 
+        model_type: str = EXTRACTION_MODEL, 
         stream = True) -> Tuple[str, str]:
     global model_init_code, get_input_function_code 
 
