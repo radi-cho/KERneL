@@ -125,70 +125,70 @@ with col2:
 
 # Visualization feature
 st.markdown("### Model Computational Graph")
-    visualize_button = st.button("Visualize Model")
+visualize_button = st.button("Visualize Model")
 
-    if visualize_button:
-        local_vars = {}
-        try:
-            # Execute user code
-            exec(python_code, {"torch": torch, "nn": nn}, local_vars)
+if visualize_button:
+    local_vars = {}
+    try:
+        # Execute user code
+        exec(python_code, {"torch": torch, "nn": nn}, local_vars)
 
-            # Attempt to retrieve the model
-            model = None
-            for var in local_vars.values():
-                if isinstance(var, nn.Module):
-                    model = var
-                    break
+        # Attempt to retrieve the model
+        model = None
+        for var in local_vars.values():
+            if isinstance(var, nn.Module):
+                model = var
+                break
 
-            if model is None:
-                raise ValueError("No valid PyTorch model found in the provided code.")
+        if model is None:
+            raise ValueError("No valid PyTorch model found in the provided code.")
 
-            # Attempt to retrieve the input tensor
-            input_tensor = None
-            for var in local_vars.values():
-                if isinstance(var, torch.Tensor):
-                    input_tensor = var
-                    break
+        # Attempt to retrieve the input tensor
+        input_tensor = None
+        for var in local_vars.values():
+            if isinstance(var, torch.Tensor):
+                input_tensor = var
+                break
 
-            if input_tensor is None:
-                # Infer input shape from the model's first layer
-                first_layer = next(model.parameters())
-                input_shape = first_layer.shape
-                input_tensor = torch.randn(input_shape)
+        if input_tensor is None:
+            # Infer input shape from the model's first layer
+            first_layer = next(model.parameters())
+            input_shape = first_layer.shape
+            input_tensor = torch.randn(input_shape)
 
-            # Generate the computational graph
-            output = model(input_tensor)
-            graph = torchviz.make_dot(output, params=dict(model.named_parameters()))
+        # Generate the computational graph
+        output = model(input_tensor)
+        graph = torchviz.make_dot(output, params=dict(model.named_parameters()))
 
-            # Render the graph to an image
-            img_buffer = BytesIO()
-            graph.render(format='png', outfile=img_buffer)
-            img_buffer.seek(0)
-            st.image(img_buffer, caption="Model Computational Graph", use_column_width=True)
+        # Render the graph to an image
+        img_buffer = BytesIO()
+        graph.render(format='png', outfile=img_buffer)
+        img_buffer.seek(0)
+        st.image(img_buffer, caption="Model Computational Graph", use_column_width=True)
 
-        except Exception as e:
-            st.error(f"Error: {e}")
-            st.warning("Displaying a default model visualization due to the error.")
+    except Exception as e:
+        st.error(f"Error: {e}")
+        st.warning("Displaying a default model visualization due to the error.")
 
-            # Define a simple default model
-            class DefaultModel(nn.Module):
-                def __init__(self):
-                    super(DefaultModel, self).__init__()
-                    self.layer = nn.Linear(10, 5)
+        # Define a simple default model
+        class DefaultModel(nn.Module):
+            def __init__(self):
+                super(DefaultModel, self).__init__()
+                self.layer = nn.Linear(10, 5)
 
-                def forward(self, x):
-                    return self.layer(x)
+            def forward(self, x):
+                return self.layer(x)
 
-            default_model = DefaultModel()
-            default_input = torch.randn(1, 10)
-            default_output = default_model(default_input)
-            default_graph = torchviz.make_dot(default_output, params=dict(default_model.named_parameters()))
+        default_model = DefaultModel()
+        default_input = torch.randn(1, 10)
+        default_output = default_model(default_input)
+        default_graph = torchviz.make_dot(default_output, params=dict(default_model.named_parameters()))
 
-            # Render the default graph to an image
-            default_img_buffer = BytesIO()
-            default_graph.render(format='png', outfile=default_img_buffer)
-            default_img_buffer.seek(0)
-            st.image(default_img_buffer, caption="Default Model Computational Graph", use_column_width=True)
+        # Render the default graph to an image
+        default_img_buffer = BytesIO()
+        default_graph.render(format='png', outfile=default_img_buffer)
+        default_img_buffer.seek(0)
+        st.image(default_img_buffer, caption="Default Model Computational Graph", use_column_width=True)
         
 # **🔹 Button to Transform Python Code (Future AI Model)**
 st.markdown("⚙️ **Transform Python to CUDA Kernel**", unsafe_allow_html=True)
