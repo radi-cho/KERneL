@@ -4,62 +4,8 @@ import random
 from streamlit_ace import st_ace
 import torch
 import torch.nn as nn
-from torchview import draw_graph
-import io
-from PIL import Image
-import sys
-import contextlib
-from io import StringIO
-import traceback
-
-# Function to safely execute PyTorch code and get model
-def execute_pytorch_code(code_string):
-    try:
-        # Create a dictionary for local variables
-        local_dict = {}
-        
-        # Execute the code in the local context
-        exec(code_string, {'torch': torch, 'nn': nn}, local_dict)
-        
-        # Find the model class (inherits from nn.Module)
-        model_class = None
-        for item in local_dict.values():
-            if isinstance(item, type) and issubclass(item, nn.Module) and item != nn.Module:
-                model_class = item
-                break
-                
-        if model_class is None:
-            return None, "No PyTorch model class found"
-            
-        # Initialize the model
-        model = model_class()
-        return model, None
-        
-    except Exception as e:
-        return None, f"Error executing code: {str(e)}\n{traceback.format_exc()}"
-
-# Function to create model visualization
-def visualize_model(model, input_size):
-    try:
-        # Create model graph
-        graph = draw_graph(
-            model, 
-            input_size=input_size,
-            expand_nested=True,
-            graph_dir='LR',  # Left to right direction
-            hide_inner_tensors=False,
-            hide_module_functions=False,
-            roll=False
-        )
-        
-        # Save graph to a file-like object
-        graph.visual_graph.render('model_graph', format='png')
-        
-        # Read the generated image
-        with open('model_graph.png', 'rb') as f:
-            return f.read()
-    except Exception as e:
-        return None, f"Error generating visualization: {str(e)}"
+import torchviz
+from io import BytesIO
 
 # Streamlit UI Setup - Remove Top Blank Space
 st.set_page_config(page_title="Python to CUDA Kernel Optimization", layout="wide")
@@ -177,48 +123,72 @@ with col2:
 
     st.components.v1.html(chart_html, height=250)
 
-# Model Visualization Section
-st.markdown("🧠 **PyTorch Model Visualization**", unsafe_allow_html=True)
-if python_code:
-    try:
-        # Convert input shape string to tuple
+# Visualization feature
+st.markdown("### Model Computational Graph")
+    visualize_button = st.button("Visualize Model")
+
+    if visualize_button:
+        local_vars = {}
         try:
-            input_size = tuple(map(int, input_shape.split(',')))
-        except:
-            st.error("Invalid input shape format. Please use comma-separated numbers.")
-            input_size = None
+            # Execute user code
+            exec(python_code, {"torch": torch, "nn": nn}, local_vars)
 
-        if input_size:
-            # Execute the code and get model
-            model, error = execute_pytorch_code(python_code)
-            
-            if error:
-                st.error(error)
-            elif model:
-                st.success("✅ PyTorch model detected! Generating visualization...")
-                
-                # Create and display visualization
-                graph_image = visualize_model(model, input_size)
-                if isinstance(graph_image, bytes):
-                    st.image(graph_image, use_column_width=True)
-                    
-                    # Display model summary
-                    st.markdown("### Model Summary")
-                    summary_output = StringIO()
-                    with contextlib.redirect_stdout(summary_output):
-                        total_params = sum(p.numel() for p in model.parameters())
-                        trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-                    
-                    st.markdown(f"""
-                    - Total Parameters: {total_params:,}
-                    - Trainable Parameters: {trainable_params:,}
-                    - Non-trainable Parameters: {total_params - trainable_params:,}
-                    """)
-                else:
-                    st.error(f"Error generating visualization: {graph_image}")
+            # Attempt to retrieve the model
+            model = None
+            for var in local_vars.values():
+                if isinstance(var, nn.Module):
+                    model = var
+                    break
 
-    except Exception as e:
-        st.error(f"Error processing model: {str(e)}")
+            if model is None:
+                raise ValueError("No valid PyTorch model found in the provided code.")
+
+            # Attempt to retrieve the input tensor
+            input_tensor = None
+            for var in local_vars.values():
+                if isinstance(var, torch.Tensor):
+                    input_tensor = var
+                    break
+
+            if input_tensor is None:
+                # Infer input shape from the model's first layer
+                first_layer = next(model.parameters())
+                input_shape = first_layer.shape
+                input_tensor = torch.randn(input_shape)
+
+            # Generate the computational graph
+            output = model(input_tensor)
+            graph = torchviz.make_dot(output, params=dict(model.named_parameters()))
+
+            # Render the graph to an image
+            img_buffer = BytesIO()
+            graph.render(format='png', outfile=img_buffer)
+            img_buffer.seek(0)
+            st.image(img_buffer, caption="Model Computational Graph", use_column_width=True)
+
+        except Exception as e:
+            st.error(f"Error: {e}")
+            st.warning("Displaying a default model visualization due to the error.")
+
+            # Define a simple default model
+            class DefaultModel(nn.Module):
+                def __init__(self):
+                    super(DefaultModel, self).__init__()
+                    self.layer = nn.Linear(10, 5)
+
+                def forward(self, x):
+                    return self.layer(x)
+
+            default_model = DefaultModel()
+            default_input = torch.randn(1, 10)
+            default_output = default_model(default_input)
+            default_graph = torchviz.make_dot(default_output, params=dict(default_model.named_parameters()))
+
+            # Render the default graph to an image
+            default_img_buffer = BytesIO()
+            default_graph.render(format='png', outfile=default_img_buffer)
+            default_img_buffer.seek(0)
+            st.image(default_img_buffer, caption="Default Model Computational Graph", use_column_width=True)
         
 # **🔹 Button to Transform Python Code (Future AI Model)**
 st.markdown("⚙️ **Transform Python to CUDA Kernel**", unsafe_allow_html=True)
