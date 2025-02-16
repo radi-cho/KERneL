@@ -77,9 +77,8 @@ def initialize_task():
             inputs = get_inputs()
 
             task_id = str(uuid4())
-            TASKS[task_id] = [python_source, model, inputs]
-
             average_time = time_execution_with_cuda_event(model, inputs, num_trials)
+            TASKS[task_id] = [python_source, model, inputs, [["", average_time]]]
             response = {
                 "status": "Task initialized successfully",
                 "torch_time": average_time,
@@ -96,11 +95,15 @@ def get_kernel():
     try:
         data = request.get_json()
 
-        task_id = data.get("task_id", "")
-        source, _, inputs = TASKS[task_id]
-
         num_trials = data.get("num_trials", 100)
-        function_name, cuda_sources, cpp_sources = generate_multiple_kernels(pytorch_function=source, additional_context="")
+        task_id = data.get("task_id", "")
+        source, _, inputs, history = TASKS[task_id]
+
+        additional_context = ""
+        if len(history) > 1:
+            additional_context = f"Your previous attempt with source: {history[-1][0]}\n\n runs in time {history[-1][1]} compared to a native PyTorch compilation which runs in time {history[0][1]}."
+
+        function_name, cuda_sources, cpp_sources = generate_multiple_kernels(pytorch_function=source, additional_context=additional_context)
         initialized, result = initialize_kernel_module(cuda_sources, cpp_sources, function_name)
 
         if initialized:
@@ -113,6 +116,8 @@ def get_kernel():
                 "kernel_code": cuda_sources,
                 "kernel_time": average_time
             }
+
+            TASKS[task_id][4].append([cuda_sources, average_time])
             return jsonify(response), 200
         else:
             response = {
