@@ -3,9 +3,8 @@ import requests
 import random
 import torch
 import torch.nn as nn
-import torchviz
-from streamlit_ace import st_ace
-from io import BytesIO
+from torchviz import make_dot
+import tempfile
 
 # Streamlit UI Setup - Remove Top Blank Space
 st.set_page_config(page_title="Python to CUDA Kernel Optimization", layout="wide")
@@ -123,6 +122,63 @@ with col2:
 
     st.components.v1.html(chart_html, height=250)
 
+# Visualize button
+if st.button("Visualize Model"):
+    local_vars = {}
+    try:
+        # Execute the user-provided code
+        exec(user_code, globals(), local_vars)
+
+        # Retrieve the model instance
+        model = None
+        for var in local_vars.values():
+            if isinstance(var, nn.Module):
+                model = var
+                break
+
+        if model is None:
+            st.error("No valid PyTorch model found in the provided code.")
+        else:
+            # Create a sample input tensor
+            sample_input = torch.randn(1, 10)  # Adjust dimensions as needed
+
+            # Generate the computational graph
+            output = model(sample_input)
+            graph = make_dot(output, params=dict(model.named_parameters()))
+
+            # Render the graph to a temporary file
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmpfile:
+                graph.render(tmpfile.name, format='png')
+                tmpfile.seek(0)
+                image_data = tmpfile.read()
+
+            # Display the image
+            st.image(image_data, caption="Model Computational Graph", use_column_width=True)
+
+    except Exception as e:
+        st.error(f"Error: {e}")
+        st.warning("Displaying a default model visualization due to the error.")
+
+        # Define a simple default model
+        class DefaultModel(nn.Module):
+            def __init__(self):
+                super(DefaultModel, self).__init__()
+                self.layer = nn.Linear(10, 5)
+
+            def forward(self, x):
+                return self.layer(x)
+
+        default_model = DefaultModel()
+        default_input = torch.randn(1, 10)
+        default_output = default_model(default_input)
+        default_graph = torchviz.make_dot(default_output, params=dict(default_model.named_parameters()))
+
+        # Render the default graph to an image
+        default_img_buffer = BytesIO()
+        default_graph.render(format='png', outfile=default_img_buffer)
+        default_img_buffer.seek(0)
+        graph_placeholder.image(default_img_buffer, caption="Default Model Computational Graph", use_column_width=True)
+        
 # **🔹 Button to Transform Python Code (Future AI Model)**
 st.markdown("⚙️ **Transform Python to CUDA Kernel**", unsafe_allow_html=True)
 if st.button("🚀 Generate Kernel Code"):
