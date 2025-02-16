@@ -34,7 +34,10 @@ with col1:
     # 🔹 Hardware Selection & Optimization Duration
     st.markdown("⚙️ **Optimization Settings**", unsafe_allow_html=True)
     hardware = st.selectbox("💻 Select Hardware", ["NVIDIA H100"])
-    num_trials = st.slider("🔁 Number of Trials", 10, 200, 100)
+    # num_trials = st.slider("🔁 Number of Trials", 10, 200, 100)
+
+    st.markdown("⚙️ **Translate Python to CUDA Kernel**", unsafe_allow_html=True)
+    button_clicked = st.button("🚀 Generate kernel")
 
     torch_output = st.empty()
     cuda_output = st.empty()
@@ -46,13 +49,13 @@ with col2:
 
     status_text = st.empty()
 
-    # Placeholder for CUDA Kernel Code
-    cuda_code_container = st.empty()
-
     # 🔹 Performance Metrics (Below CUDA Code)
     st.markdown("📊 **Performance Metrics**", unsafe_allow_html=True)
     torch_time_text = st.empty()
     kernel_time_text = st.empty()
+
+    # Placeholder for CUDA Kernel Code
+    cuda_code_container = st.empty()
 
     # from torchview import draw_graph  # ensure torchview is installed
 
@@ -96,16 +99,14 @@ with col2:
     #         st.error(f"TorchView error: {e}")
     #         st.exception(e)
 
-# 🔹 Button to Send Python Code
-st.markdown("⚙️ **Transform Python to CUDA Kernel**", unsafe_allow_html=True)
 
-if st.button("🚀 Generate kernel"):
+if button_clicked:
     if python_code.strip():
         status_text.info("📡 Initializing task on server...")
 
         try:
             # 🔹 Step 1: Send Python Code to Initialize Task
-            payload = {"python_source": python_code, "num_trials": num_trials}
+            payload = {"python_source": python_code, "num_trials": 1}
             response = requests.post(
                 "https://d4fa-209-20-157-139.ngrok-free.app/initialize_task",
                 json=payload
@@ -120,10 +121,10 @@ if st.button("🚀 Generate kernel"):
                 torch_output.markdown("🔥 **Torch output sample:** \n```\n" + data["output"] + "\n```")
 
                 if task_id:
-                    status_text.info("📡 Generating and compiling a CUDA kernel...")
+                    status_text.info("📡 Generating and compiling  CUDA kernel...")
 
                     # 🔹 Step 2: Request CUDA Kernel Initialization
-                    kernel_payload = {"task_id": task_id, "num_trials": num_trials}
+                    kernel_payload = {"task_id": task_id, "num_trials": 1}
                     kernel_response = requests.post(
                         "https://d4fa-209-20-157-139.ngrok-free.app/get_kernel",
                         json=kernel_payload

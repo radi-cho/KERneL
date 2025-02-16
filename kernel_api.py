@@ -8,7 +8,7 @@ from torch.utils.cpp_extension import load_inline
 from api_query import generate_multiple_kernels, get_init_and_input_function
 from llm_query_sample import llm_query
 
-torch.set_printoptions(edgeitems=2, threshold=10, linewidth=100)
+torch.set_printoptions(edgeitems=1, threshold=10, linewidth=100)
 
 TASKS = {}
 
