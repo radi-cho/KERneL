@@ -1,4 +1,4 @@
-def llm_query(python_source, context):
+def llm_query2(python_source, context):
     function_name = "diag_matmul_kernel"
 
     cpp = """
@@ -33,7 +33,7 @@ __global__ void diag_matmul_kernel(const float* A, const float* B, float* C, int
 }#"""
     return function_name, cuda, cpp
 
-def llm_query2(python_source, context):
+def llm_query(python_source, context):
     function_name = "diag_matmul_cuda"
     cuda = """
 #include <torch/extension.h>
