@@ -2,6 +2,7 @@ import streamlit as st
 import requests
 import random
 import types
+import itertools
 
 from streamlit_ace import st_ace
 
@@ -42,6 +43,8 @@ with col1:
 # 🔹 Right Side: CUDA Kernel Code Output (Read-Only, Starts at the Top)
 with col2:
     st.markdown("⚡ **Generated CUDA Kernel Code**", unsafe_allow_html=True)
+
+    status_text = st.empty()
 
     # Placeholder for CUDA Kernel Code
     cuda_code_container = st.empty()
@@ -98,7 +101,7 @@ st.markdown("⚙️ **Transform Python to CUDA Kernel**", unsafe_allow_html=True
 
 if st.button("🚀 Generate kernel"):
     if python_code.strip():
-        st.info("📡 Initializing task on server...")
+        status_text.info("📡 Initializing task on server...")
 
         try:
             # 🔹 Step 1: Send Python Code to Initialize Task
@@ -117,7 +120,7 @@ if st.button("🚀 Generate kernel"):
                 torch_output.markdown("🔥 **Torch output sample:** \n```\n" + data["output"] + "\n```")
 
                 if task_id:
-                    st.info("📡 Initializing CUDA kernel...")
+                    status_text.info("📡 Initializing CUDA kernel...")
 
                     # 🔹 Step 2: Request CUDA Kernel Initialization
                     kernel_payload = {"task_id": task_id, "num_trials": num_trials}
@@ -136,6 +139,50 @@ if st.button("🚀 Generate kernel"):
                             # ✅ Render CUDA Kernel Code dynamically
                             cuda_code_container.markdown("```cpp\n" + kernel_data["kernel_code"] + "\n```")
                             cuda_output.markdown("**CUDA output sample:** \n```\n" + kernel_data["output"] + "\n```")
+
+
+                            algorithms = ["Torch", "CUDA"]
+                            runtimes = [torch_time, kernel_time]  # Replace with actual runtimes
+
+                            # Convert data to JavaScript-friendly format
+                            labels_js = str(algorithms)
+                            data_js = str(runtimes)
+
+                            # Chart.js HTML + JavaScript
+                            chart_html = f"""
+                            <canvas id="myChart"></canvas>
+                            <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+                            <script>
+                            var ctx = document.getElementById('myChart').getContext('2d');
+                            var myChart = new Chart(ctx, {{
+                                type: 'bar',
+                                data: {{
+                                    labels: {labels_js},
+                                    datasets: [{{
+                                        label: 'Runtime (ms)',
+                                        data: {data_js},
+                                        backgroundColor: ['rgba(54, 162, 235, 0.5)', 'rgba(255, 99, 132, 0.5)'],
+                                        borderColor: ['rgba(54, 162, 235, 1)', 'rgba(255, 99, 132, 1)'],
+                                        borderWidth: 1
+                                    }}]
+                                }},
+                                options: {{
+                                    responsive: true,
+                                    scales: {{
+                                        y: {{
+                                            beginAtZero: true
+                                        }}
+                                    }}
+                                }}
+                            }});
+                            </script>
+                            """
+
+                            status_text.empty()
+
+                            # Render Chart.js in Streamlit
+                            # st.components.v1.html(chart_html, height=400)
+
                             st.success("✅ CUDA kernel compiled successfully!")
                         else:
                             st.warning("⚠️ CUDA kernel not received.")
