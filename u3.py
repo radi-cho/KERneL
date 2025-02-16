@@ -1,6 +1,14 @@
 import streamlit as st
 import requests
+import random
+import types
+
 from streamlit_ace import st_ace
+
+import time
+import torch
+from torch import nn
+import torchvision
 
 # Streamlit UI Setup - Remove Top Blank Space
 st.set_page_config(page_title="Python to CUDA Kernel Optimization", layout="wide")
@@ -19,6 +27,10 @@ with col1:
         key="python_code_editor"
     )
 
+    # **Tensor Input Dimension Section**
+    st.markdown("📏 **Specify Tensor Input Dimensions**", unsafe_allow_html=True)
+    tensor_dim = st.text_input("Enter tensor dimensions (e.g., 1, 3, 224, 224)", "1, 3, 224, 224")
+
     # 🔹 Hardware Selection & Optimization Duration
     st.markdown("⚙️ **Optimization Settings**", unsafe_allow_html=True)
     hardware = st.selectbox("💻 Select Hardware", ["NVIDIA H100", "NVIDIA A100"])
@@ -35,6 +47,48 @@ with col2:
     st.markdown("📊 **Performance Metrics**", unsafe_allow_html=True)
     torch_time_text = st.empty()
     kernel_time_text = st.empty()
+
+    from torchview import draw_graph  # ensure torchview is installed
+
+    st.markdown("🖼 **Model Computational Graph**", unsafe_allow_html=True)
+    if st.button("🖥 Generate Computational Graph"):
+        # Show a loading message for exactly 3 seconds.
+        with st.spinner("Loading computational graph..."):
+            time.sleep(2)
+
+        # 1. Parse tensor dimensions and create dummy input.
+        try:
+            input_dims = tuple(map(int, tensor_dim.split(',')))
+            dummy_input = torch.rand(input_dims)
+        except Exception as e:
+            st.error(f"Error parsing tensor dimensions: {e}")
+            st.stop()
+
+        # 2. Execute the user code in a fresh module namespace.
+        user_module = types.ModuleType("user_module")
+        try:
+            exec(compile(python_code, "<string>", "exec"), user_module.__dict__)
+        except Exception as e:
+            st.error(f"Error executing user code: {e}")
+            st.stop()
+
+        # 3. Extract the model (the first nn.Module instance found)
+        model = next((v for k, v in user_module.__dict__.items() if isinstance(v, nn.Module)), None)
+        if model is None:
+            st.error("No valid nn.Module instance found in the provided code.")
+            st.write("Module keys:", list(user_module.__dict__.keys()))
+            st.stop()
+
+        try:
+            # 4. Use TorchView to generate the computational graph.
+            # draw_graph returns a path to an image file by default,
+            # so we can then display that image using st.image.
+
+            graph_path = draw_graph(model, input_size=input_dims, roll=True)
+            st.write(graph_path.visual_graph)
+        except Exception as e:
+            st.error(f"TorchView error: {e}")
+            st.exception(e)
 
 # 🔹 Button to Send Python Code
 st.markdown("⚙️ **Transform Python to CUDA Kernel**", unsafe_allow_html=True)
@@ -92,4 +146,3 @@ if st.button("🚀 Apply"):
 
     else:
         st.warning("⚠️ Please enter Python code before applying.")
-
