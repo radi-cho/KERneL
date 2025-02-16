@@ -136,7 +136,7 @@ if st.button("🖥 Generate Computational Graph"):
         input_dims = tuple(map(int, tensor_dim.split(',')))
         dummy_input = torch.randn(input_dims)
         local_scope = {}
-        exec(python_code, local_scope)
+        exec(compile(python_code, "<string>", "exec"), local_scope)
         model = next((v for v in local_scope.values() if isinstance(v, nn.Module)), None)
         
         if model is None:
@@ -146,6 +146,8 @@ if st.button("🖥 Generate Computational Graph"):
         image_stream = BytesIO()
         dot.render(format='png', outfile=image_stream)
         st.image(image_stream.getvalue(), caption="Computational Graph")
+    except SyntaxError as e:
+        st.error(f"Syntax error in input code: {e}")
     except Exception as e:
         st.error(f"Error generating visualization: {e}")
         
