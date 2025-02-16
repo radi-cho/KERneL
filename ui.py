@@ -28,7 +28,7 @@ with col1:
 with col2:
     st.markdown("⚡ **Generated CUDA Kernel Code**", unsafe_allow_html=True)
 
-    # CUDA Kernel Code Editor (Fixed Position at Top)
+    # Placeholder for CUDA Kernel Code
     cuda_code_container = st.empty()
 
     # 🔹 Performance Metrics (Below CUDA Code)
@@ -39,7 +39,7 @@ with col2:
 # 🔹 Button to Send Python Code
 st.markdown("⚙️ **Transform Python to CUDA Kernel**", unsafe_allow_html=True)
 
-if st.button("🚀 Apply"):
+if st.button("🚀 Generate kernel"):
     if python_code.strip():
         st.info("📡 Initializing task on server...")
 
@@ -75,16 +75,8 @@ if st.button("🚀 Apply"):
                         kernel_time_text.markdown(f"⚡ **CUDA Execution Time:** `{kernel_time} ms`")
 
                         if "kernel_code" in kernel_data:
-                            # ✅ Render CUDA Kernel Code dynamically using st_ace
-                            st_ace(
-                                language="cpp",
-                                theme="monokai",
-                                placeholder="CUDA kernel code will appear here...",
-                                height=400,
-                                key="cuda_code_editor",
-                                readonly=True,
-                                value=kernel_data["kernel_code"]
-                            )
+                            # ✅ Render CUDA Kernel Code dynamically
+                            cuda_code_container.markdown("```cpp\n" + kernel_data["kernel_code"] + "\n```")
                             st.success("✅ CUDA kernel compiled successfully!")
                         else:
                             st.warning("⚠️ CUDA kernel not received.")
