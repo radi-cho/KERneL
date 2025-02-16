@@ -128,7 +128,7 @@ def get_kernel():
                 "output": str(output)
             }
 
-            TASKS[task_id][4].append([cuda_sources, average_time, output])
+            TASKS[task_id][3].append([cuda_sources, average_time, output])
             return jsonify(response), 200
         else:
             response = {
