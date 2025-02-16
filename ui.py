@@ -116,11 +116,11 @@ if st.button("🚀 Generate kernel"):
                 task_id = data.get("task_id")
                 torch_time = data.get("torch_time", "N/A")
 
-                torch_time_text.markdown(f"🔥 **Torch Execution Time:** `{torch_time} ms`")
+                torch_time_text.markdown(f"🔥 **Torch Execution Time:** `{torch_time:.3f} ms`")
                 torch_output.markdown("🔥 **Torch output sample:** \n```\n" + data["output"] + "\n```")
 
                 if task_id:
-                    status_text.info("📡 Initializing CUDA kernel...")
+                    status_text.info("📡 Generating and compiling a CUDA kernel...")
 
                     # 🔹 Step 2: Request CUDA Kernel Initialization
                     kernel_payload = {"task_id": task_id, "num_trials": num_trials}
@@ -131,9 +131,9 @@ if st.button("🚀 Generate kernel"):
 
                     if kernel_response.status_code == 200:
                         kernel_data = kernel_response.json()
-                        kernel_time = kernel_data.get("kernel_time", "N/A")
+                        kernel_time = float(kernel_data.get("kernel_time", "N/A"))
 
-                        kernel_time_text.markdown(f"⚡ **CUDA Execution Time:** `{kernel_time} ms`")
+                        kernel_time_text.markdown(f"⚡ **CUDA Execution Time:** `{kernel_time:.3f} ms`")
 
                         if "kernel_code" in kernel_data:
                             # ✅ Render CUDA Kernel Code dynamically
