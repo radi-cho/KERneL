@@ -68,7 +68,7 @@ def query_kernel_generation(
         system_prompt = f"{prompt_prefix} {system_prompt} {pytorch_function} {prompt_postfix}"
     else:
         system_prompt = f"{prompt_prefix} {system_prompt} {pytorch_function} Here is Feedback for Your Last Function {additional_context}  {prompt_postfix}"
-    
+
     if USE_OPEN_AI:
         completion = CLIENTS[0].chat.completions.create(
             model=model_type,
@@ -256,7 +256,6 @@ def generate_single_kernel(client, model_type, pytorch_function, additional_cont
     for attempt in range(max_retries):
         try:
             return query_kernel_generation(
-                client=client,
                 model_type=model_type,
                 pytorch_function=pytorch_function,
                 additional_context=additional_context,
@@ -426,7 +425,6 @@ def get_init_and_input_function(
         get_input_function_code = ""
 
     return model_init_code, get_input_function_code
-
 
 def test_case(
     pytorch_function: str, 
