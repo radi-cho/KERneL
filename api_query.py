@@ -18,19 +18,40 @@ MAX_EXTRACTION_TOKENS = 1000
 NUM_SAMPLES = 1
 
 DEBUG = True
-BASE_URL = "https://integrate.api.nvidia.com/v1"
-EXTRACTION_MODEL = "qwen/qwen2.5-7b-instruct" #"meta/llama-3.2-3b-instruct"
-DEEPSEEKR1_MODEL = "deepseek-ai/deepseek-r1"
+NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"
+
+USE_OPEN_AI = True
+
+if USE_OPEN_AI:
+    EXTRACTION_MODEL = "gpt-4o" #"qwen/qwen2.5-7b-instruct" #"meta/llama-3.2-3b-instruct"
+    KERNEL_GEN_MODEL = "o3-mini-2025-01-31" # "deepseek-ai/deepseek-r1"
+else:
+    EXTRACTION_MODEL = "qwen/qwen2.5-7b-instruct" #"meta/llama-3.2-3b-instruct"
+    KERNEL_GEN_MODEL = "deepseek-ai/deepseek-r1"
 
 KERNEL_CU_CPP_FLAGS = [("<kernel_cu>", "</kernel_cu>"), ("<cpp_kernel>", "</cpp_kernel>")]
 INIT_INPUT_FUNC_FLAGS = [("<model_initialization_code>", "</model_initialization_code>"), ("<input_function>", "</input_function>")]
 
-API_KEY = "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"
+NVIDIA_API_KEY = "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"
 
 CLIENTS = []
 
 model_init_code = None
 get_input_function_code = None
+
+def init_multiple_clients(API_type: str):
+    if API_type == "OpenAI":
+            USE_OPEN_AI = True
+    elif API_type == "Deepseek":
+        USE_OPEN_AI = False
+    else:
+        USE_OPEN_AI = False
+    
+    if len(CLIENTS) == 0:
+        for i in range(NUM_SAMPLES):
+            client = initialize_client(api_key = None, base_url = None)
+            CLIENTS.append(client)
+            print(f"Client {i} Initialized")
 
 def query_kernel_generation(client: OpenAI, 
                  model_type: str, 
@@ -38,33 +59,44 @@ def query_kernel_generation(client: OpenAI,
                  additional_context: str = "",
                  stream = True) -> str:
     
-    if False:
-        with open(PROMPT_PREFIX_PATH, 'r') as file:
-            prompt_prefix = file.read()
-        with open(PROMPT_POSTFIX_PATH, 'r') as file:
-            prompt_postfix = file.read()
-
-        if len(additional_context) == 0:
-            system_prompt = f"{prompt_prefix} {pytorch_function} {prompt_postfix}"
-        else:
-            system_prompt = f"{prompt_prefix} {pytorch_function} Here is Feedback for Your Last Function {additional_context}  {prompt_postfix}"
-    else:
-        system_prompt = prompt_generate_ex_with_CoT_template(
-            ref_arch_src = pytorch_function,
-            cot_example = "ex_fuse_gelu")
+    
+    system_prompt = prompt_generate_ex_with_CoT_template(
+        ref_arch_src = pytorch_function,
+        cot_example = "ex_fuse_gelu")
         
-    completion = CLIENTS[0].chat.completions.create(
-        model=model_type,
-        messages= [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": f"Write a CUDA kernel for the following PyTorch function:\n{pytorch_function}"}
-        ],
-        temperature=0.6,
-        top_p=0.7,
-        max_tokens=MAX_REASONING_TOKENS,
-        stream=stream
-        #response_format={'type': 'json_object'} if response_format == "json" else None,
-    )
+    with open(PROMPT_PREFIX_PATH, 'r') as file:
+        prompt_prefix = file.read()
+    with open(PROMPT_POSTFIX_PATH, 'r') as file:
+        prompt_postfix = file.read()
+
+    if len(additional_context) == 0:
+        system_prompt = f"{prompt_prefix} {system_prompt} {pytorch_function} {prompt_postfix}"
+    else:
+        system_prompt = f"{prompt_prefix} {system_prompt} {pytorch_function} Here is Feedback for Your Last Function {additional_context}  {prompt_postfix}"
+    
+    if USE_OPEN_AI:
+        completion = CLIENTS[0].chat.completions.create(
+            model=model_type,
+            messages= [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": f"Write a CUDA kernel for the following PyTorch function:\n{pytorch_function}"}
+            ],
+            stream=stream
+            #response_format={'type': 'json_object'} if response_format == "json" else None,
+        )
+    else:
+        completion = CLIENTS[0].chat.completions.create(
+            model=model_type,
+            messages= [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": f"Write a CUDA kernel for the following PyTorch function:\n{pytorch_function}"}
+            ],
+            temperature=0.6,
+            top_p=0.7,
+            max_tokens=MAX_REASONING_TOKENS,
+            stream=stream
+            #response_format={'type': 'json_object'} if response_format == "json" else None,
+        )
 
     reasoning_response = []
     for chunk in completion:
@@ -172,18 +204,28 @@ def query_extraction(response_text, refinement_client, model_type, system_prompt
         }
 
         """
-       
-    completion = refinement_client.chat.completions.create(
-        model=model_type,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": f"Extract the CUDA and C++ method signature (kernel.cu and kernel.cpp) from the following text:\n{response_text}"}
-        ],
-        temperature=0.6,
-        top_p=0.7,
-        max_tokens= MAX_EXTRACTION_TOKENS,  # Adjusted for larger responses
-        stream=stream
-    )
+    
+    if USE_OPEN_AI:
+        completion = refinement_client.chat.completions.create(
+            model=model_type,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": f"Extract the CUDA and C++ method signature (kernel.cu and kernel.cpp) from the following text:\n{response_text}"}
+            ],
+            stream=stream
+        )
+    else:
+        completion = refinement_client.chat.completions.create(
+            model=model_type,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": f"Extract the CUDA and C++ method signature (kernel.cu and kernel.cpp) from the following text:\n{response_text}"}
+            ],
+            temperature=0.6,
+            top_p=0.7,
+            max_tokens= MAX_EXTRACTION_TOKENS,  # Adjusted for larger responses
+            stream=stream
+        )
 
     return completion
 
@@ -216,6 +258,7 @@ def parse_reasoning_response(reasoning_text: str,
 def generate_single_kernel(client, model_type, pytorch_function, additional_context, stream, max_retries = 5):
     for attempt in range(max_retries):
         try:
+            time.sleep(2)
             return query_kernel_generation(
                 client=client,
                 model_type=model_type,
@@ -225,21 +268,20 @@ def generate_single_kernel(client, model_type, pytorch_function, additional_cont
             )
         except Exception as e:
             wait_time = 2 ** attempt + random.uniform(0, 1)  # Exponential backoff with jitter
-            print(f"RateLimitError: Retrying in {wait_time:.2f} seconds...")
+            print(f"{e}: Retrying in {wait_time:.2f} seconds...")
             time.sleep(wait_time)
     raise Exception("Max retries exceeded for query.")  # Raise an exception if all retries fail
 
 def generate_multiple_kernels(
     pytorch_function: str, 
     additional_context: str = "", 
-    use_extraction_client: bool = True
+    query_times: int = 0,
+    use_extraction_client: bool = True,
+    API_type: str = "OpenAI",
     ) -> Union[List[Tuple[str, str, str]], Tuple[str, str, str]]:
-    
+
     if len(CLIENTS) == 0:
-        for i in range(NUM_SAMPLES):
-            client = initialize_client(api_key = API_KEY, base_url = BASE_URL)
-            CLIENTS.append(client)
-            print(f"Client {i} Initialized")
+        init_multiple_clients(API_type)
 
     generated_kernels = []
     processed_kernels = []
@@ -247,13 +289,15 @@ def generate_multiple_kernels(
     with concurrent.futures.ThreadPoolExecutor() as executor:
         futures = [
             executor.submit(generate_single_kernel, CLIENTS[query_id], 
-                            DEEPSEEKR1_MODEL, pytorch_function, 
+                            KERNEL_GEN_MODEL, pytorch_function, 
                             additional_context, True)
             for query_id in range(NUM_SAMPLES)
         ]
         for future in concurrent.futures.as_completed(futures):
-            print(f"Generated Answer: ")
-            result = "".join(future.result())
+            print("Generated Answer:")
+            result = future.result()
+            result = [item for item in result if item is not None]
+            result = "".join(result)
             print(f"{result}")
             generated_kernels.append(result)
             if not use_extraction_client:
@@ -294,15 +338,13 @@ def generate_multiple_kernels(
 
 def get_init_and_input_function(
         pytorch_function: str, 
+        API_type: str = "OpenAI",
         model_type: str = EXTRACTION_MODEL, 
         stream = True) -> Tuple[str, str]:
     global model_init_code, get_input_function_code 
 
     if len(CLIENTS) == 0:
-        for i in range(NUM_SAMPLES):
-            client = initialize_client(api_key = API_KEY, base_url = BASE_URL)
-            CLIENTS.append(client)
-            print(f"Client {i} Initialized")
+        init_multiple_clients(API_type)
 
     system_prompt = """
     You are an expert in analyzing PyTorch code. Your task is to identify the main PyTorch model defined in the given code, analyze its forward function, and write Python code that initializes the model and generates random inputs for its forward function. Follow these rules:
@@ -351,18 +393,28 @@ def get_init_and_input_function(
     </input_function>
 
     """
-       
-    completion = CLIENTS[0].chat.completions.create(
-        model=model_type,
-        messages=[
-            {"role": "system", "content": system_prompt.strip()},
-            {"role": "user", "content": f"Extract the model type, dtype, and dimensions of the input from the following PyTorch code:\n\n{pytorch_function.strip()}"}
-        ],
-        temperature=0.6,
-        top_p=0.7,
-        max_tokens = MAX_EXTRACTION_TOKENS,  # Adjusted for larger responses
-        stream=stream
-    )
+
+    if USE_OPEN_AI:
+        completion = CLIENTS[0].chat.completions.create(
+            model=model_type,
+            messages=[
+                {"role": "system", "content": system_prompt.strip()},
+                {"role": "user", "content": f"Extract the model type, dtype, and dimensions of the input from the following PyTorch code:\n\n{pytorch_function.strip()}"}
+            ],
+            stream=stream
+        )
+    else:
+        completion = CLIENTS[0].chat.completions.create(
+            model=model_type,
+            messages=[
+                {"role": "system", "content": system_prompt.strip()},
+                {"role": "user", "content": f"Extract the model type, dtype, and dimensions of the input from the following PyTorch code:\n\n{pytorch_function.strip()}"}
+            ],
+            temperature=0.6,
+            top_p=0.7,
+            max_tokens = MAX_EXTRACTION_TOKENS,  # Adjusted for larger responses
+            stream=stream
+        )
 
     response = []
     for chunk in completion:
@@ -389,14 +441,17 @@ def main(
     ):
     global model_init_code, get_input_function_code 
 
-    model_init, get_input_func = get_init_and_input_function(
-        model_type = EXTRACTION_MODEL,
-        pytorch_function = pytorch_function)
+    if True:
+        model_init, get_input_func = get_init_and_input_function(
+            model_type = EXTRACTION_MODEL,
+            pytorch_function = pytorch_function)
+    else:
+        model_init, get_input_func = "", ""
     
-    print(f"model_init_code: \n{model_init_code}")
-    print(f"model_init_code: \n{get_input_function_code}")
+    print(f"model_init_code: \n{model_init}")
+    print(f"get_input_func: \n{get_input_func}")
 
-    model_context = f"The forward function you are creating is from {model_init} with input parameters sampled from {get_input_func}"
+    model_context = f"The forward function you are creating is from {model_init_code} with input parameters sampled from {get_input_func}"
     additional_context = f"{model_context} {additional_context}"
 
     kernels = generate_multiple_kernels(
@@ -404,7 +459,7 @@ def main(
         additional_context = additional_context, 
         use_extraction_client = use_extraction_client)
     
-    print(f"func_name {kernels[0]} \n cuda_code: {kernels[1]} \n cpp_method_signature {kernels[2]}")
+    print(f"func_name \n {kernels[0]} \n cuda_code: \n {kernels[1]} \n cpp_method_signature: \n {kernels[2]}")
 
     save_kernels(kernels if NUM_SAMPLES > 1 else [kernels], directory = "sample")
 
@@ -575,10 +630,10 @@ def debug():
 
 
     if False:
-        deepseek_client = initialize_client(api_key = API_KEY, base_url = BASE_URL)
+        deepseek_client = initialize_client(api_key = API_KEY, base_url = NVIDIA_BASE_URL)
         print("Client Initialized")
         completion = query_kernel_generation(client = deepseek_client, 
-                            model_type = DEEPSEEKR1_MODEL, 
+                            model_type = KERNEL_GEN_MODEL, 
                             pytorch_function = pytorch_function, 
                             response_format= "json", 
                             stream=True) 

@@ -5,14 +5,26 @@ import time
 from datetime import datetime
 from openai import OpenAI
 
-API_KEY = "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"
+NVIDIA_API_KEY = "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"
+NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"
 
+def initialize_client(api_key = None, base_url = None):
+    
+    if api_key is None:
+        api_key = os.getenv("API_KEY")
+        if not api_key:
+            raise ValueError("API key not found. Please set the API_KEY environment variable.")
+        return OpenAI(
+            api_key = api_key
+        )
+    else:
+        base_url = NVIDIA_BASE_URL
+        return OpenAI(
+            base_url = base_url,
+            api_key = api_key
+        )
 
-def initialize_client(api_key = API_KEY, base_url="https://integrate.api.nvidia.com/v1"):
-    return OpenAI(
-        base_url = base_url,
-        api_key = api_key
-    )
+    
 
 def extract_method_name(cpp_signature: str) -> str:
     """
