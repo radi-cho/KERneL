@@ -5,7 +5,7 @@ import importlib.util
 from uuid import uuid4
 from flask import Flask, request, jsonify
 from torch.utils.cpp_extension import load_inline
-from llm_query_sample import llm_query
+from api_query import generate_multiple_kernels, get_init_and_input_function
 
 TASKS = {}
 
@@ -67,6 +67,9 @@ def initialize_task():
         python_source = data.get("python_source", "")
         num_trials = data.get("num_trials", 100)
 
+        model_init_code, get_input_function_code = get_init_and_input_function(python_source)
+        python_source = model_init_code + "\n" + get_input_function_code
+
         initialized, result = initialize_python_module(python_source)
         if initialized:
             Model, get_inputs = getattr(result, "Model"), getattr(result, "get_inputs")
@@ -98,7 +101,7 @@ def get_kernel():
         source, _, inputs = TASKS[task_id]
 
         num_trials = data.get("num_trials", 100)
-        function_name, cuda_sources, cpp_sources = llm_query(source, "")
+        function_name, cuda_sources, cpp_sources = generate_multiple_kernels(pytorch_function=source, additional_context="")
         initialized, result = initialize_kernel_module(cuda_sources, cpp_sources, function_name)
 
         if initialized:
