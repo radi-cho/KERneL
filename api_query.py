@@ -15,23 +15,44 @@ PROMPT_PREFIX_PATH = "prompt_prefix.txt"
 PROMPT_POSTFIX_PATH = "prompt_postfix.txt"
 MAX_REASONING_TOKENS = 2000
 MAX_REFINEMENT_TOKENS = 1000
-NUM_SAMPLES = 10
+NUM_SAMPLES = 1
 
 BASE_URL = "https://integrate.api.nvidia.com/v1"
 EXTRACTION_MODEL = "qwen/qwen2.5-7b-instruct" #"meta/llama-3.2-3b-instruct"
 DEEPSEEKR1_MODEL = "deepseek-ai/deepseek-r1"
   
+def save_reasoning(results: List[str], filename: str = "results.txt"):
+    """
+    Saves the generated results to a specified file.
+
+    Args:
+        results (List[str]): The list of string results to save.
+        filename (str): The filename where results will be saved.
+    """
+    # Ensure the output directory exists
+    directory = os.path.dirname(filename)
+    if directory and not os.path.exists(directory):
+        os.makedirs(directory)
+
+    with open(filename, "w") as file:
+        for idx, result in enumerate(results, start=1):
+            file.write(f"Result {idx}:\n")
+            file.write(f"{result}\n")
+            file.write("-" * 50 + "\n")
+    print(f"Results saved to {filename}")
+
 def save_kernels(kernels: List[Tuple[str, str]], directory="sample"):
+    
+    # Get the current date and time for the filename
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    directory = f"{directory}/{timestamp}"
     # Ensure the output directory exists
     if not os.path.exists(directory):
         os.makedirs(directory)
 
-    # Get the current date and time for the filename
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-
     for idx, (cpp_kernel, cuda_kernel) in enumerate(kernels):
-        cpp_filename = os.path.join(directory, f"kernel_{idx}_{timestamp}.cpp")
-        cu_filename = os.path.join(directory, f"kernel_{idx}_{timestamp}.cu")
+        cpp_filename = os.path.join(directory, f"/kernel_{idx}.cpp")
+        cu_filename = os.path.join(directory, f"kernel_{idx}.cu")
 
         with open(cpp_filename, "w") as cpp_file:
             cpp_file.write(cpp_kernel)
@@ -165,6 +186,25 @@ def process_response(reasoning_text: str,
         print(f"Error parsing response: {e}")
         return None, None
 
+def extract_kernels_from_text(full_response: str) -> Tuple[str, str]:
+    try:
+        # Find the content between <kernel_cu> and </kernel_cu>
+        cu_start = full_response.find("<kernel_cu>") + len("<kernel_cu>")
+        cu_end = full_response.find("</kernel_cu>")
+        kernel_cu = full_response[cu_start:cu_end].strip() if cu_start != -1 and cu_end != -1 else ""
+
+        # Find the content between <cpp_kernel> and </cpp_kernel>
+        cpp_start = full_response.find("<cpp_kernel>") + len("<cpp_kernel>")
+        cpp_end = full_response.find("</cpp_kernel>")
+        cpp_kernel = full_response[cpp_start:cpp_end].strip() if cpp_start != -1 and cpp_end != -1 else ""
+
+        # Return the extracted kernel.cpp and kernel.cu
+        return cpp_kernel, kernel_cu
+    except Exception as e:
+        print(f"Error parsing response: {e}")
+        return None, None
+
+
 def run_single_query(client, model_type, pytorch_function, additional_context, stream, max_retries = 5):
     for attempt in range(max_retries):
         try:
@@ -181,7 +221,7 @@ def run_single_query(client, model_type, pytorch_function, additional_context, s
             time.sleep(wait_time)
     raise Exception("Max retries exceeded for query.")  # Raise an exception if all retries fail
 
-def generate_kernel(pytorch_function: str, additional_context: str = "") -> Tuple[str, str]:
+def generate_kernel(pytorch_function: str, additional_context: str = "", use_extraction_client: bool = True) -> Tuple[str, str]:
     # Initialize client and query API
     
     clients = []
@@ -199,29 +239,39 @@ def generate_kernel(pytorch_function: str, additional_context: str = "") -> Tupl
                             additional_context, True)
             for query_id in range(NUM_SAMPLES)
         ]
-
         for future in concurrent.futures.as_completed(futures):
             print(f"Generated Answer: ")
-            result = future.result()
+            result = "".join(future.result())
             print(f"{result}")
             generated_kernels.append(result)
+            if not use_extraction_client:
+                try:
+                    cpp_kernel, cuda_kernel = extract_kernels_from_text(result)
+                    processed_kernels.append((cpp_kernel, cuda_kernel))
+                    print(f"Kernel processed and collected: {len(processed_kernels)}")
+                except Exception as e:
+                    print(f"Error processing a kernel: {e}")
 
-    with concurrent.futures.ThreadPoolExecutor() as executor:
-        # Submit processing tasks for each generated kernel
-        process_futures = [
-            executor.submit(process_response, completion, 
-                            clients[idx], EXTRACTION_MODEL)
-            for idx, completion in enumerate(generated_kernels)
-        ]
+    if use_extraction_client:
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            # Submit processing tasks for each generated kernel
+            process_futures = [
+                executor.submit(process_response, completion, client, EXTRACTION_MODEL)
+                for completion in generated_kernels
+            ]
 
-        # Collect the processed kernels (cpp_kernel, cuda_kernel) as they complete
-        for future in concurrent.futures.as_completed(process_futures):
-            try:
-                cpp_kernel, cuda_kernel = future.result()
-                processed_kernels.append((cpp_kernel, cuda_kernel))
-                print(f"Kernel processed and collected: {len(processed_kernels)}")
-            except Exception as e:
-                print(f"Error processing a kernel: {e}")
+            # Collect the processed kernels (cpp_kernel, cuda_kernel) as they complete
+            for future in concurrent.futures.as_completed(process_futures):
+                try:
+                    cpp_kernel, cuda_kernel = future.result()
+                    processed_kernels.append((cpp_kernel, cuda_kernel))
+                    print(f"Kernel processed and collected: {len(processed_kernels)}")
+                except Exception as e:
+                    print(f"Error processing a kernel: {e}")
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_filename = f"reasoning_results_{timestamp}.txt"
+    save_reasoning(generated_kernels, filename=output_filename)
 
     return processed_kernels
 
