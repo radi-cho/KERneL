@@ -44,19 +44,23 @@ def time_execution_with_cuda_event(model, inputs, num_trials):
     inputs = [inp.to(device=device) for inp in inputs]
 
     elapsed_times = 0
-    for _ in range(num_trials):
+    for trial in range(num_trials):
         start_event = torch.cuda.Event(enable_timing=True)
         end_event = torch.cuda.Event(enable_timing=True)
         
         start_event.record()
-        model(*inputs)
+        if trial == num_trials - 1:
+            output = model(*inputs)
+        else:
+            model(*inputs)
+
         end_event.record()
 
         torch.cuda.synchronize(device=device)
         elapsed_time_ms = start_event.elapsed_time(end_event)
         elapsed_times += elapsed_time_ms
 
-    return elapsed_times / num_trials
+    return elapsed_times / num_trials, output
 
 
 app = Flask(__name__)
@@ -77,12 +81,13 @@ def initialize_task():
             inputs = get_inputs()
 
             task_id = str(uuid4())
-            average_time = time_execution_with_cuda_event(model, inputs, num_trials)
-            TASKS[task_id] = [python_source, model, inputs, [["", average_time]]]
+            average_time, output = time_execution_with_cuda_event(model, inputs, num_trials)
+            TASKS[task_id] = [python_source, model, inputs, [["", average_time, output]]]
             response = {
                 "status": "Task initialized successfully",
                 "torch_time": average_time,
-                "task_id": task_id
+                "task_id": task_id,
+                "output": str(output)
             }
             return jsonify(response), 200
     except Exception as e:
@@ -108,16 +113,17 @@ def get_kernel():
 
         if initialized:
             model = getattr(result, function_name)
-            average_time = time_execution_with_cuda_event(model, inputs, num_trials)
+            average_time, output = time_execution_with_cuda_event(model, inputs, num_trials)
 
             response = {
                 "task_id": task_id,
                 "status": "Kernel compiled successfully",
                 "kernel_code": cuda_sources,
-                "kernel_time": average_time
+                "kernel_time": average_time,
+                "output": str(output)
             }
 
-            TASKS[task_id][4].append([cuda_sources, average_time])
+            TASKS[task_id][4].append([cuda_sources, average_time, output])
             return jsonify(response), 200
         else:
             response = {
