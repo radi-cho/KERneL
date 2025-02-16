@@ -5,6 +5,8 @@ import os
 import requests
 from datetime import datetime
 import concurrent.futures
+import time
+import random
 
 os.environ["NIM_ENABLE_KV_CACHE_REUSE"] = "1"
 
@@ -12,7 +14,7 @@ API_KEY = "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
 PROMPT_PREFIX_PATH = "prompt_prefix.txt"
 PROMPT_POSTFIX_PATH = "prompt_postfix.txt"
 MAX_REASONING_TOKENS = 2000
-MAX_REFINEMENT_TOKENS = 500
+MAX_REFINEMENT_TOKENS = 1000
 NUM_SAMPLES = 10
 
 BASE_URL = "https://integrate.api.nvidia.com/v1"
@@ -79,12 +81,8 @@ def query_kernel_generation(client: OpenAI,
     for chunk in completion:
         #print("Processing text chunk...")
         content = chunk.choices[0].delta.content
-        if content:
-            print(content, end="")
         reasoning_response.append(content)
-    
-    print("\nFinished printing original response")
-
+ 
     return reasoning_response
 
 def query_extraction(response_text, refinement_client, model_type, system_prompt=None, stream=True):
@@ -105,6 +103,7 @@ def query_extraction(response_text, refinement_client, model_type, system_prompt
 
 
         Rules:
+        0. Ensure the name of the functions in both are the same
         1. Do not include any text or comments outside of the specified tags.
         2. Ensure that each section is complete and valid, containing only the respective code for kernel.cpp and kernel.cu.
         4. The output should end cleanly, with no extra tokens, trailing characters, or explanations.
@@ -166,41 +165,53 @@ def process_response(reasoning_text: str,
         print(f"Error parsing response: {e}")
         return None, None
 
-def run_single_query(client, model_type, pytorch_function, additional_context, stream):
-    completion = query_kernel_generation(
-        client = client, 
-        model_type = model_type, 
-        pytorch_function=pytorch_function, 
-        additional_context=additional_context,
-        stream=True
-    )
-    return completion
+def run_single_query(client, model_type, pytorch_function, additional_context, stream, max_retries = 5):
+    for attempt in range(max_retries):
+        try:
+            return query_kernel_generation(
+                client=client,
+                model_type=model_type,
+                pytorch_function=pytorch_function,
+                additional_context=additional_context,
+                stream=True
+            )
+        except Exception as e:
+            wait_time = 2 ** attempt + random.uniform(0, 1)  # Exponential backoff with jitter
+            print(f"RateLimitError: Retrying in {wait_time:.2f} seconds...")
+            time.sleep(wait_time)
+    raise Exception("Max retries exceeded for query.")  # Raise an exception if all retries fail
 
-def generate_kernel(pytorch_function: str, additional_context: str) -> Tuple[str, str]:
+def generate_kernel(pytorch_function: str, additional_context: str = "") -> Tuple[str, str]:
     # Initialize client and query API
     
-    client = initialize_client(api_key = API_KEY, base_url = BASE_URL)
-    print("Client Initialized")
+    clients = []
+    for i in range(NUM_SAMPLES):
+        client = initialize_client(api_key = API_KEY, base_url = BASE_URL)
+        clients.append(client)
+        print(f"Client {i} Initialized")
     
     generated_kernels = []
     processed_kernels = []
-    query_inputs = (client, DEEPSEEKR1_MODEL, pytorch_function, additional_context, True)
-    
     with concurrent.futures.ThreadPoolExecutor() as executor:
         futures = [
-            executor.submit(run_single_query, *query_inputs)
+            executor.submit(run_single_query, clients[query_id], 
+                            DEEPSEEKR1_MODEL, pytorch_function, 
+                            additional_context, True)
             for query_id in range(NUM_SAMPLES)
         ]
 
         for future in concurrent.futures.as_completed(futures):
+            print(f"Generated Answer: ")
             result = future.result()
+            print(f"{result}")
             generated_kernels.append(result)
 
     with concurrent.futures.ThreadPoolExecutor() as executor:
         # Submit processing tasks for each generated kernel
         process_futures = [
-            executor.submit(process_response, completion, client, EXTRACTION_MODEL)
-            for completion in generated_kernels
+            executor.submit(process_response, completion, 
+                            clients[idx], EXTRACTION_MODEL)
+            for idx, completion in enumerate(generated_kernels)
         ]
 
         # Collect the processed kernels (cpp_kernel, cuda_kernel) as they complete
@@ -217,16 +228,30 @@ def generate_kernel(pytorch_function: str, additional_context: str) -> Tuple[str
 if __name__ == '__main__':
     pytorch_function = """
     import torch
+    import torch.nn as nn
 
-    # Example PyTorch function: element-wise addition
-    def pytorch_addition(a, b):
-        return a + b
+    class Model(nn.Module):
+        def __init__(self):
+            super(Model, self).__init__()
+        
+        def forward(self, A, B):
+            return torch.diag(A) @ B
+
+    M = 4096
+    N = 4096
+
+    def get_inputs():
+        A = torch.randn(N)
+        B = torch.randn(N, M)
+        return [A, B]
+
+    def get_init_inputs():
+        return []  # No special initialization inputs needed
     """
 
     kernels = generate_kernel(pytorch_function)
 
     save_kernels(kernels, directory = "sample")
-
 
 def debug():
 
