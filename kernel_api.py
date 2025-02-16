@@ -108,6 +108,7 @@ def get_kernel():
             response = {
                 "task_id": task_id,
                 "status": "Kernel compiled successfully",
+                "kernel_code": cuda_sources,
                 "kernel_time": average_time
             }
             return jsonify(response), 200
