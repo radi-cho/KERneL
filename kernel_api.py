@@ -69,7 +69,7 @@ def initialize_task():
         num_trials = data.get("num_trials", 100)
 
         model_init_code, get_input_function_code = get_init_and_input_function(python_source)
-        python_source = model_init_code + "\n" + get_input_function_code
+        python_source += model_init_code + "\n" + get_input_function_code
 
         initialized, result = initialize_python_module(python_source)
         if initialized:
