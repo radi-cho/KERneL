@@ -9,6 +9,9 @@ from io import BytesIO
 import tempfile
 import os
 
+# Ensure Graphviz is installed and available in PATH
+os.environ["PATH"] += os.pathsep + "/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin:/usr/sbin:/sbin"
+
 # Streamlit UI Setup - Remove Top Blank Space
 st.set_page_config(page_title="Python to CUDA Kernel Optimization", layout="wide")
 
@@ -142,7 +145,6 @@ if st.button("🖥 Generate Computational Graph"):
         if model is None:
             raise ValueError("No valid PyTorch model found in the input code.")
         
-        os.environ["PATH"] += os.pathsep + '/usr/bin'  # Adjust this path if needed
         dot = torchviz.make_dot(model(dummy_input), params=dict(model.named_parameters()))
         
         with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmpfile:
