@@ -100,7 +100,7 @@ def get_kernel():
         source, _, inputs = TASKS[task_id]
 
         num_trials = data.get("num_trials", 100)
-        function_name, cuda_sources, cpp_sources = llm_query(pytorch_function=source, additional_context="")
+        function_name, cuda_sources, cpp_sources = generate_multiple_kernels(pytorch_function=source, additional_context="")
         initialized, result = initialize_kernel_module(cuda_sources, cpp_sources, function_name)
 
         if initialized:
