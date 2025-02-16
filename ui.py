@@ -45,8 +45,6 @@ with col1:
 
 # 🔹 Right Side: CUDA Kernel Code Output (Read-Only, Starts at the Top)
 with col2:
-    st.markdown("⚡ **Generated CUDA Kernel Code**", unsafe_allow_html=True)
-
     status_text = st.empty()
 
     # 🔹 Performance Metrics (Below CUDA Code)
@@ -55,6 +53,7 @@ with col2:
     kernel_time_text = st.empty()
 
     # Placeholder for CUDA Kernel Code
+    st.markdown("⚡ **Generated CUDA Kernel Code**", unsafe_allow_html=True)
     cuda_code_container = st.empty()
 
     # from torchview import draw_graph  # ensure torchview is installed
@@ -132,7 +131,7 @@ if button_clicked:
 
                     if kernel_response.status_code == 200:
                         kernel_data = kernel_response.json()
-                        kernel_time = float(kernel_data.get("kernel_time", "N/A"))
+                        kernel_time = float(kernel_data.get("kernel_time", "0"))
 
                         kernel_time_text.markdown(f"⚡ **CUDA Execution Time:** `{kernel_time:.3f} ms`")
 
