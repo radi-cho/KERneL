@@ -1,14 +1,11 @@
 from openai import OpenAI
-import json
-from typing import Union, Tuple, List, Callable, Any
+from typing import Union, Tuple, List
 import os
-import requests
 from datetime import datetime
 import concurrent.futures
-import torch.nn as nn
 import time
 import random
-from prompt_construction import prompt_generate_ex_with_CoT_template
+from prompt_construction import prompt_generate_ex_with_CoT_template, prompt_fix_correctness
 from utils import extract_method_name, save_reasoning, save_kernels, extract_from_text, initialize_client
 
 PROMPT_PREFIX_PATH = "prompt_prefix.txt"
@@ -23,10 +20,10 @@ NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"
 USE_OPEN_AI = True
 
 if USE_OPEN_AI:
-    EXTRACTION_MODEL = "gpt-4o" #"qwen/qwen2.5-7b-instruct" #"meta/llama-3.2-3b-instruct"
-    KERNEL_GEN_MODEL = "o3-mini-2025-01-31" # "deepseek-ai/deepseek-r1"
+    EXTRACTION_MODEL = "gpt-4o" 
+    KERNEL_GEN_MODEL = "o1-2024-12-17" 
 else:
-    EXTRACTION_MODEL = "qwen/qwen2.5-7b-instruct" #"meta/llama-3.2-3b-instruct"
+    EXTRACTION_MODEL = "qwen/qwen2.5-7b-instruct" 
     KERNEL_GEN_MODEL = "deepseek-ai/deepseek-r1"
 
 KERNEL_CU_CPP_FLAGS = [("<kernel_cu>", "</kernel_cu>"), ("<cpp_kernel>", "</cpp_kernel>")]
@@ -41,24 +38,22 @@ get_input_function_code = None
 
 def init_multiple_clients(API_type: str):
     if API_type == "OpenAI":
-            USE_OPEN_AI = True
+        USE_OPEN_AI = True
     elif API_type == "Deepseek":
         USE_OPEN_AI = False
     else:
         USE_OPEN_AI = False
-    
     if len(CLIENTS) == 0:
         for i in range(NUM_SAMPLES):
             client = initialize_client(api_key = None, base_url = None)
             CLIENTS.append(client)
             print(f"Client {i} Initialized")
 
-def query_kernel_generation(client: OpenAI, 
+def query_kernel_generation( 
                  model_type: str, 
                  pytorch_function: str, 
                  additional_context: str = "",
                  stream = True) -> str:
-    
     
     system_prompt = prompt_generate_ex_with_CoT_template(
         ref_arch_src = pytorch_function,
@@ -82,7 +77,6 @@ def query_kernel_generation(client: OpenAI,
                 {"role": "user", "content": f"Write a CUDA kernel for the following PyTorch function:\n{pytorch_function}"}
             ],
             stream=stream
-            #response_format={'type': 'json_object'} if response_format == "json" else None,
         )
     else:
         completion = CLIENTS[0].chat.completions.create(
@@ -95,12 +89,10 @@ def query_kernel_generation(client: OpenAI,
             top_p=0.7,
             max_tokens=MAX_REASONING_TOKENS,
             stream=stream
-            #response_format={'type': 'json_object'} if response_format == "json" else None,
         )
 
     reasoning_response = []
     for chunk in completion:
-        #print("Processing text chunk...")
         content = chunk.choices[0].delta.content
         reasoning_response.append(content)
 
@@ -109,7 +101,12 @@ def query_kernel_generation(client: OpenAI,
  
     return reasoning_response
 
-def query_extraction(response_text, refinement_client, model_type, system_prompt=None, stream=True):
+def query_extraction(response_text: str, 
+                     refinement_client: OpenAI, 
+                     model_type: str, 
+                     system_prompt: str = None, 
+                     stream: bool = True):
+    
     if system_prompt is None:
         system_prompt = """
         You are given a text that contains CUDA wrapper code for kernel.cpp and kernel.cu. 
@@ -258,7 +255,6 @@ def parse_reasoning_response(reasoning_text: str,
 def generate_single_kernel(client, model_type, pytorch_function, additional_context, stream, max_retries = 5):
     for attempt in range(max_retries):
         try:
-            time.sleep(2)
             return query_kernel_generation(
                 client=client,
                 model_type=model_type,
@@ -275,7 +271,6 @@ def generate_single_kernel(client, model_type, pytorch_function, additional_cont
 def generate_multiple_kernels(
     pytorch_function: str, 
     additional_context: str = "", 
-    query_times: int = 0,
     use_extraction_client: bool = True,
     API_type: str = "OpenAI",
     ) -> Union[List[Tuple[str, str, str]], Tuple[str, str, str]]:
@@ -315,8 +310,6 @@ def generate_multiple_kernels(
                 executor.submit(parse_reasoning_response, completion, CLIENTS[id], EXTRACTION_MODEL)
                 for id, completion in enumerate(generated_kernels)
             ]
-
-            # Collect the processed kernels (cpp_kernel, cuda_kernel) as they complete
             for future in concurrent.futures.as_completed(process_futures):
                 try:
                     cuda_kernel, cpp_kernel_signature = future.result()
@@ -341,6 +334,7 @@ def get_init_and_input_function(
         API_type: str = "OpenAI",
         model_type: str = EXTRACTION_MODEL, 
         stream = True) -> Tuple[str, str]:
+    
     global model_init_code, get_input_function_code 
 
     if len(CLIENTS) == 0:
@@ -434,7 +428,7 @@ def get_init_and_input_function(
     return model_init_code, get_input_function_code
 
 
-def main(
+def test_case(
     pytorch_function: str, 
     additional_context: str = "", 
     use_extraction_client: bool = True
@@ -489,154 +483,4 @@ if __name__ == '__main__':
         return []  # No special initialization inputs needed
     """
 
-    print("def get_inputs():" in pytorch_function)
-
-    if False:
-        pytorch_function = """
-        import torch
-        import torch.nn as nn
-
-
-        def forward(self, A, B):
-            return torch.diag(A) @ B
-
-        """
-
-    main(pytorch_function)
-
-def debug():
-
-    deepseek_output = """
-    <think>
-    Okay, I need to create a CUDA kernel to replace the PyTorch element-wise addition function. Let me start by understanding what the original function does. It takes two tensors a and b and returns their element-wise sum. The goal is to write a custom CUDA kernel that performs this operation more efficiently.
-
-    First, I'll outline the steps required. The CUDA kernel should take two input tensors, add each corresponding element, and store the result in an output tensor. I'll need to write the kernel function itself, the launch parameters (block size, grid size), and the PyTorch wrapper to integrate it.
-
-    I remember that in CUDA, each thread handles one element or a chunk of elements. For simplicity, I'll start with one thread per element. The block size can be 256 threads, which is a common choice. The grid size will then be the total number of elements divided by the block size, rounded up.
-
-    Next, I need to handle the kernel launch. The inputs are PyTorch tensors, so I have to access their data pointers. Also, I need to ensure that the tensors are on the GPU and contiguous. The output tensor should be initialized with zeros_like(a) to match the shape and device.
-
-    Wait, what about different tensor shapes? The original PyTorch function broadcasts if necessary, but for simplicity, maybe I'll assume that a and b are the same shape. The user's example uses a and b of the same shape, so perhaps that's acceptable here.
-
-    Now, writing the CUDA kernel. The kernel will have parameters for the input pointers, output pointer, and the total number of elements. Each thread calculates its global index and checks if it's within bounds before performing the addition.
-
-    Then, the PyTorch extension. Using torch.utils.cpp_extension.load_inline to compile the CUDA code. The cpp_sources and cuda_sources need to be properly formatted. The function name in the C++ code should be exposed so that Python can call it.
-
-    Testing the code: I need to make sure that the ModelNew class uses the custom CUDA kernel instead of the default addition. The forward method will call the compiled function. Also, the get_inputs function should generate tensors on the GPU.
-
-    Potential issues: Forgetting to check the tensor dimensions, incorrect grid/block calculations, or memory access issues. Also, ensuring that the CUDA code is correctly formatted with proper includes and syntax.
-
-    Let me put it all together. The CUDA kernel is defined in a string, then loaded as a PyTorch extension. The ModelNew class uses this extension in its forward pass. The input tensors are created on the GPU to match the kernel's expectations.
-
-    I should also verify that the code compiles and runs without errors. Using load_inline with verbose=True might help catch any compilation issues. The block and grid dimensions are calculated correctly to cover all elements.
-
-    Finally, the get_inputs function in the example uses tensors of size 4096, which is a good test size. The user's original example had 1x128 tensors, but larger sizes would better demonstrate the benefits of parallelization.
-    </think>
-
-    ```python
-    import torch
-    from torch.utils.cpp_extension import load_inline
-
-    # Custom CUDA kernel implementation for element-wise addition
-    cuda_source = '''
-    #include <torch/extension.h>
-    #include <cuda.h>
-    #include <cuda_runtime.h>
-
-    __global__ void elementwise_add_kernel(
-        const float* a,
-        const float* b,
-        float* out,
-        int num_elements
-    ) {
-        const int idx = blockIdx.x * blockDim.x + threadIdx.x;
-        if (idx < num_elements) {
-            out[idx] = a[idx] + b[idx];
-        }
-    }
-
-    torch::Tensor custom_add_cuda(torch::Tensor a, torch::Tensor b) {
-        // Validate inputs
-        TORCH_CHECK(a.device().is_cuda(), "Input tensor a must be on GPU");
-        TORCH_CHECK(b.device().is_cuda(), "Input tensor b must be on GPU");
-        TORCH_CHECK(a.sizes() == b.sizes(), "Input tensors must have the same shape");
-        
-        auto out = torch::zeros_like(a);
-        const int num_elements = a.numel();
-        
-        // Kernel launch parameters
-        const int threads_per_block = 256;
-        const int blocks = (num_elements + threads_per_block - 1) / threads_per_block;
-        
-        // Ensure tensors are contiguous
-        auto a_cont = a.contiguous();
-        auto b_cont = b.contiguous();
-        
-        elementwise_add_kernel<<<blocks, threads_per_block>>>(
-            a_cont.data_ptr<float>(),
-            b_cont.data_ptr<float>(),
-            out.data_ptr<float>(),
-            num_elements
-        );
-        
-        return out;
-    }
-    '''
-
-    cpp_source = "torch::Tensor custom_add_cuda(torch::Tensor a, torch::Tensor b);"
-
-    # Load the custom CUDA extension
-    custom_add = load_inline(
-        name='custom_add',
-        cpp_sources=cpp_source,
-        cuda_sources=cuda_source,
-        functions=['custom_add_cuda'],
-        verbose=True
-    )
-
-    class ModelNew(torch.nn.Module):
-        def __init__(self):
-            super().__init__()
-        
-        def forward(self, a, b):
-            return custom_add.custom_add_cuda(a, b)
-
-    def get_inputs():
-        a = torch.randn(4096, device='cuda')  # Larger tensor for meaningful GPU utilization
-        b = torch.randn(4096, device='cuda')
-        return [a, b]
-
-    def get_init_inputs():
-        return []
-    ```
-
-    Key optimizations and features:
-    1. **Batched element-wise operations**: Processes 4096 elements for better GPU utilization
-    2. **Optimal thread configuration**: Uses 256 threads per block (common best practice)
-    3. **Memory coalescing**: Ensures contiguous memory access patterns
-    4. **Input validation**: Checks tensor devices and shapes match
-    5. **Asynchronous execution**: Leverages CUDA's parallel execution model
-    6. **Zero-copy tensor handling**: Uses PyTorch's memory management directly
-
-    To use:
-    ```python
-    model = ModelNew().cuda()
-    a, b = get_inputs()
-    result = model(a, b)
-    ```
-
-    This implementation should provide significant speedups over the native PyTorch implementation for large tensors due to parallel execution on GPU cores
-    """
-
-
-    if False:
-        deepseek_client = initialize_client(api_key = API_KEY, base_url = NVIDIA_BASE_URL)
-        print("Client Initialized")
-        completion = query_kernel_generation(client = deepseek_client, 
-                            model_type = KERNEL_GEN_MODEL, 
-                            pytorch_function = pytorch_function, 
-                            response_format= "json", 
-                            stream=True) 
-        print("Response Found")
-    else:
-        completion = deepseek_output
+    test_case(pytorch_function)
