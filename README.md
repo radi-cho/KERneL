@@ -1,4 +1,5 @@
 
+### Test Cases
 
 ### Extremely basic example
 
@@ -8,7 +9,7 @@ import torch
 import torch.nn as nn
 import time
 
-# Define a simple PyTorch module
+#Define a simple PyTorch module
 class SequentialOperations(nn.Module):
     def __init__(self):
         super(SequentialOperations, self).__init__()
@@ -21,6 +22,8 @@ class SequentialOperations(nn.Module):
         x = x.sin()
         x = self.relu(x)
         return x
+    
+
 
 '''
 
@@ -84,11 +87,11 @@ class Model(nn.Module):
         return relative_attention(query, key, value)
 
 
-# Define the batch size, number of heads, sequence length, and embedding dimension
+#Define the batch size, number of heads, sequence length, and embedding dimension
 B = 8  # Batch size
-H = 12  # Number of attention heads
-S = 128  # Sequence length
-D = 64  # Embedding dimension per head
+H = 16  # Number of attention heads
+S = 2048  # Sequence length
+D = 128  # Embedding dimension per head
 
 def get_inputs():
     """
@@ -117,9 +120,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-SLIDING_WINDOW = 1024
+SLIDING_WINDOW = 2048
 
-# Placeholder for the custom CUDA function
+#Placeholder for the custom CUDA function
 def sliding_window_attention(query, key, value):
     """
     Placeholder function for sliding window causal attention.
@@ -166,11 +169,11 @@ class Model(nn.Module):
         return sliding_window_attention(query, key, value)
 
 
-# Define the batch size, number of heads, sequence length, and embedding dimension
+#Define the batch size, number of heads, sequence length, and embedding dimension
 B = 8  # Batch size
-H = 12  # Number of attention heads
+H = 16  # Number of attention heads
 S = 2048  # Sequence length
-D = 64  # Embedding dimension per head
+D = 128  # Embedding dimension per head
 
 def get_inputs():
     """
@@ -199,7 +202,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-# Placeholder for the custom CUDA function
+#Placeholder for the custom CUDA function
 def prefix_attention(query, key, value, prefix_length):
     """
     Placeholder function for PrefixLM attention with dynamic prefix-based and causal masking.
@@ -251,11 +254,12 @@ class Model(nn.Module):
         return prefix_attention(query, key, value, prefix_length)
 
 
-# Define the batch size, number of heads, sequence length, and embedding dimension
+#Define the batch size, number of heads, sequence length, and embedding dimension
+
 B = 8  # Batch size
-H = 12  # Number of attention heads
-S = 128  # Sequence length
-D = 64  # Embedding dimension per head
+H = 16  # Number of attention heads
+S = 2048  # Sequence length
+D = 128  # Embedding dimension per head
 
 def get_inputs():
     """
@@ -286,7 +290,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-# Placeholder for the custom CUDA function
+#Placeholder for the custom CUDA function
 def alibi_attention(query, key, value, alibi_bias):
     """
     Placeholder function for ALiBi attention.
@@ -331,11 +335,11 @@ class Model(nn.Module):
         return alibi_attention(query, key, value, alibi_bias)
 
 
-# Define the batch size, number of heads, sequence length, and embedding dimension
+#Define the batch size, number of heads, sequence length, and embedding dimension
 B = 8  # Batch size
-H = 12  # Number of attention heads
-S = 128  # Sequence length
-D = 64  # Embedding dimension per head
+H = 16  # Number of attention heads
+S = 2048  # Sequence length
+D = 128  # Embedding dimension per head
 
 def get_inputs():
     """
@@ -344,7 +348,8 @@ def get_inputs():
     query = torch.randn(B, H, S, D).cuda()
     key = torch.randn(B, H, S, D).cuda()
     value = torch.randn(B, H, S, D).cuda()
-    alibi_bias = torch.arange(S, device="cuda").unsqueeze(0).expand(H, S) * -0.1  # Example bias generation
+    # Example bias generation
+    alibi_bias = torch.arange(S, device="cuda").unsqueeze(0).expand(H, S) * -0.1 
     return [query, key, value, alibi_bias]
 
 def get_init_inputs():
