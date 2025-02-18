@@ -29,7 +29,7 @@ else:
 KERNEL_CU_CPP_FLAGS = [("<kernel_cu>", "</kernel_cu>"), ("<cpp_kernel>", "</cpp_kernel>")]
 INIT_INPUT_FUNC_FLAGS = [("<model_initialization_code>", "</model_initialization_code>"), ("<input_function>", "</input_function>")]
 
-NVIDIA_API_KEY = "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"
+NVIDIA_API_KEY = #
 
 CLIENTS = []
 
