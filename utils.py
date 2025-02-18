@@ -5,7 +5,7 @@ import time
 from datetime import datetime
 from openai import OpenAI
 
-NVIDIA_API_KEY = "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"
+NVIDIA_API_KEY = #redacted
 NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"
 
 def initialize_client(api_key = None, base_url = None):
